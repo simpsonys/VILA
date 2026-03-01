@@ -44,6 +44,9 @@ function createWindow() {
   });
 
   win.setMenuBarVisibility(false);
+  // open developer tools automatically (helps diagnose startup issues)
+  // This will detach so the main window is unobstructed.
+  win.webContents.openDevTools({ mode: 'detach' });
   win.loadFile("index.html");
 }
 

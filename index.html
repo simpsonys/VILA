@@ -273,6 +273,16 @@ let isDetailWindow = false; // track if this window is a detail display
 let currentDetailData = null; // holds utterance data if this is a detail window
 let streamingMode = false; // streaming analysis mode (false = wait until complete, true = show results in real-time)
 
+// global error handlers to surface issues when devtools not available
+window.addEventListener('error', (e) => {
+  console.error('Global error', e.error || e.message);
+  alert('Error occurred: ' + (e.error ? e.error.toString() : e.message));
+});
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('Unhandled rejection', e.reason);
+  alert('Unhandled promise rejection: ' + e.reason);
+});
+
 // zoom state
 let zoomLevel = 1;
 function applyZoom() {
