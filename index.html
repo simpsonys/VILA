@@ -122,28 +122,61 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
 <div class="main">
   <!-- Progress Panel -->
   <div class="progress-panel" id="progressPanel">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <div style="display:flex;align-items:center;gap:10px">
-        <span id="progressDot" style="color:#60dcfa;animation:pulse 1s infinite;font-size:14px">●</span>
-        <span id="progressLabel" style="font-size:13px;font-weight:600;color:#60dcfa">Analyzing...</span>
-        <span id="progressFile" style="font-size:11px;color:#4a5568"></span>
-        <span class="enc-tag" id="progressEnc" style="display:none"></span>
-      </div>
-      <div style="display:flex;align-items:center;gap:12px">
+    <div id="progressLayout" style="display:block">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <div style="display:flex;align-items:center;gap:10px">
+          <span id="progressDot" style="color:#60dcfa;animation:pulse 1s infinite;font-size:14px">●</span>
+          <span id="progressLabel" style="font-size:13px;font-weight:600;color:#60dcfa">Analyzing...</span>
+          <span id="progressFile" style="font-size:11px;color:#4a5568"></span>
+          <span class="enc-tag" id="progressEnc" style="display:none"></span>
+        </div>
         <span id="progressCount" style="font-size:12px;color:#64748b;font-family:'Consolas',monospace"></span>
-        <div id="miniDropZone" style="display:none;border:2px dashed #1e2433;border-radius:8px;padding:8px 16px;cursor:pointer;background:#0b0e15;transition:all 0.2s" onclick="openFile()" title="Click to load another file">
-          <span style="font-size:11px;color:#94a3b8">📄 Load New File</span>
+      </div>
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progressBar" style="width:0%;background:linear-gradient(90deg,#60dcfa,#a78bfa)"></div>
+      </div>
+      <div style="display:flex;gap:20px;font-size:12px;color:#64748b">
+        <span>Utterances: <b id="progFound" style="color:#e2e8f0">0</b></span>
+        <span>Lines matched: <b id="progMatched" style="color:#e2e8f0">0</b></span>
+      </div>
+    </div>
+    
+    <!-- Split layout after analysis complete -->
+    <div id="progressSplitLayout" style="display:none">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+        <!-- Left: Progress Info -->
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <div style="display:flex;align-items:center;gap:10px">
+              <span style="color:#34d399;font-size:14px">✓</span>
+              <span style="font-size:13px;font-weight:600;color:#34d399">Analysis Complete</span>
+              <span id="progressFile2" style="font-size:11px;color:#4a5568"></span>
+              <span class="enc-tag" id="progressEnc2" style="display:none"></span>
+            </div>
+            <span id="progressCount2" style="font-size:12px;color:#64748b;font-family:'Consolas',monospace"></span>
+          </div>
+          <div class="progress-bar-track">
+            <div style="height:100%;border-radius:2px;width:100%;background:#34d399"></div>
+          </div>
+          <div style="display:flex;gap:20px;font-size:12px;color:#64748b;margin-top:10px">
+            <span>Utterances: <b id="progFound2" style="color:#e2e8f0">0</b></span>
+            <span>Lines matched: <b id="progMatched2" style="color:#e2e8f0">0</b></span>
+          </div>
+        </div>
+        
+        <!-- Right: Secondary Drop Zone -->
+        <div>
+          <div class="dropzone" id="secondaryDropZone" style="padding:40px 20px;margin:0;border-radius:10px">
+            <div class="dropzone-icon" style="font-size:32px">📄</div>
+            <div class="dropzone-title" style="font-size:14px">Drop another file here</div>
+            <div class="dropzone-sub" style="font-size:11px;margin-bottom:12px">or click to browse</div>
+            <button class="btn-paste" style="font-size:11px;padding:6px 16px" onclick="event.stopPropagation();doPaste()">📋 Paste</button>
+          </div>
         </div>
       </div>
     </div>
-    <div class="progress-bar-track">
-      <div class="progress-bar-fill" id="progressBar" style="width:0%;background:linear-gradient(90deg,#60dcfa,#a78bfa)"></div>
-    </div>
-    <div style="display:flex;gap:20px;font-size:12px;color:#64748b">
-      <span>Utterances: <b id="progFound" style="color:#e2e8f0">0</b></span>
-      <span>Lines matched: <b id="progMatched" style="color:#e2e8f0">0</b></span>
-    </div>
   </div>
+
 
   <!-- Drop Zone -->
   <div class="dropzone" id="dropzone">
@@ -319,6 +352,22 @@ function setupEventListeners() {
     if (file) readFile(file);
   });
 
+    // Secondary drop zone events
+  const setupSecondaryDropZone = () => {
+    const sdz = document.getElementById('secondaryDropZone');
+    if (sdz) {
+      sdz.addEventListener('click', () => openFile());
+      sdz.addEventListener('dragover', e => { e.preventDefault(); sdz.classList.add('over'); });
+      sdz.addEventListener('dragleave', () => sdz.classList.remove('over'));
+      sdz.addEventListener('drop', e => {
+        e.preventDefault(); sdz.classList.remove('over');
+        const file = e.dataTransfer.files?.[0];
+        if (file) readFile(file);
+      });
+    }
+  };
+  setupSecondaryDropZone();
+
   document.addEventListener('paste', e => {
     const text = e.clipboardData?.getData('text');
     if (text && text.length > 10) { e.preventDefault(); processText(text, 'clipboard-paste'); }
@@ -354,9 +403,11 @@ function setupEventListeners() {
 
     if (window.electronAPI.onUpdateNotAvailable) {
       window.electronAPI.onUpdateNotAvailable(() => {
-        showUpdateModal('You are running the latest version.', 'uptodate');
+        console.log('You are running the latest version.');
+        // Don't show modal for no updates
       });
     }
+
 
     if (window.electronAPI.onDownloadProgress) {
       window.electronAPI.onDownloadProgress((progress) => {
@@ -383,9 +434,11 @@ function setupEventListeners() {
 
     if (window.electronAPI.onUpdateError) {
       window.electronAPI.onUpdateError((error) => {
-        showUpdateModal('Update check failed: ' + error, 'error');
+        console.error('Update check failed:', error);
+        // Don't show modal for update errors, just log
       });
     }
+
   }
 }
 
@@ -574,13 +627,22 @@ function updateProgress(processed, total, found, matched) {
 function finishParsing() {
   isAnalyzing = false;
   parseInterrupt = false;
-  document.getElementById('progressLabel').textContent = '✓ Analysis Complete';
-  document.getElementById('progressLabel').style.color = '#34d399';
-  document.getElementById('progressDot').style.display = 'none';
-  document.getElementById('progressBar').style.background = '#34d399';
-  document.getElementById('miniDropZone').style.display = ''; // Show mini drop zone
+  
+  // Copy values to split layout
+  document.getElementById('progressFile2').textContent = document.getElementById('progressFile').textContent;
+  document.getElementById('progressEnc2').textContent = document.getElementById('progressEnc').textContent;
+  document.getElementById('progressEnc2').style.display = document.getElementById('progressEnc').style.display;
+  document.getElementById('progressCount2').textContent = document.getElementById('progressCount').textContent;
+  document.getElementById('progFound2').textContent = document.getElementById('progFound').textContent;
+  document.getElementById('progMatched2').textContent = document.getElementById('progMatched').textContent;
+  
+  // Switch to split layout
+  document.getElementById('progressLayout').style.display = 'none';
+  document.getElementById('progressSplitLayout').style.display = '';
+  
   renderTable();
 }
+
 
 function renderStats() {
   const s = { total: entries.length, success: 0, fail: 0, partial: 0, unknown: 0 };
@@ -769,6 +831,8 @@ async function openDetailFromTable(idx) {
     showDetail(idx);
   }
 }
+
+
 
 async function displayDetailWindow(data) {
   const { utteranceData: e, utteranceIndex } = data;
@@ -1038,8 +1102,10 @@ function resetApp() {
   document.getElementById('resultsArea').style.display = 'none';
   document.getElementById('exportBtn').style.display = 'none';
   document.getElementById('progressPanel').classList.remove('show');
-  document.getElementById('miniDropZone').style.display = 'none'; // Hide mini drop zone
+  document.getElementById('progressLayout').style.display = 'block';
+  document.getElementById('progressSplitLayout').style.display = 'none';
 }
+
 
 
 
