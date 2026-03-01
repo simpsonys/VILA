@@ -295,7 +295,9 @@ function initColumnFilters() {
 
 // Toggle streaming mode
 function toggleStreamingMode() {
-  streamingMode = document.getElementById('streamingToggle').checked;
+  const toggleEl = document.getElementById('streamingToggle');
+  if (!toggleEl) return;
+  streamingMode = toggleEl.checked;
   // Store preference in localStorage
   localStorage.setItem('streamingMode', streamingMode);
 } 
@@ -307,33 +309,41 @@ async function init() {
   const savedStreamingMode = localStorage.getItem('streamingMode');
   if (savedStreamingMode !== null) {
     streamingMode = savedStreamingMode === 'true';
-    document.getElementById('streamingToggle').checked = streamingMode;
-  }
-  
-  if (window.electronAPI) {
-    // Register IPC listener FIRST before any await - avoids race condition
-    if (window.electronAPI.onSetUtteranceData) {
-      window.electronAPI.onSetUtteranceData((data) => {
-        isDetailWindow = true;
-        currentDetailData = data;
-        if (CONFIG) { displayDetailWindow(data); }
-        else { pendingDetailData = data; }
-      });
+    const toggleEl = document.getElementById('streamingToggle');
+    if (toggleEl) {
+      toggleEl.checked = streamingMode;
     }
-    CONFIG = await window.electronAPI.loadConfig();
-    if (window.electronAPI.getAppVersion) {
-      APP_VERSION = await window.electronAPI.getAppVersion();
-      document.getElementById('appSub').textContent = `[${APP_VERSION}] by SimpsonYS`;
+  }
+
+  try {
+    if (window.electronAPI) {
+      // Register IPC listener FIRST before any await - avoids race condition
+      if (window.electronAPI.onSetUtteranceData) {
+        window.electronAPI.onSetUtteranceData((data) => {
+          isDetailWindow = true;
+          currentDetailData = data;
+          if (CONFIG) { displayDetailWindow(data); }
+          else { pendingDetailData = data; }
+        });
+      }
+      CONFIG = await window.electronAPI.loadConfig();
+      if (window.electronAPI.getAppVersion) {
+        APP_VERSION = await window.electronAPI.getAppVersion();
+        document.getElementById('appSub').textContent = `[${APP_VERSION}] by SimpsonYS`;
+      }
+      if (pendingDetailData) { displayDetailWindow(pendingDetailData); pendingDetailData = null; }
     }
-    if (pendingDetailData) { displayDetailWindow(pendingDetailData); pendingDetailData = null; }
+  } catch (err) {
+    console.error('init() failed', err);
+  } finally {
+    if (!APP_VERSION) {
+      document.getElementById('appSub').textContent = '[dev build] by SimpsonYS';
+    }
+    if (!CONFIG) {
+      CONFIG = getDefaultConfig();
+    }
+    setupEventListeners();
   }
-  if (!APP_VERSION) {
-    document.getElementById('appSub').textContent = '[dev build] by SimpsonYS';
-  }
-  if (!CONFIG) {
-    CONFIG = getDefaultConfig();
-  }
-  setupEventListeners();
 }
 
 
