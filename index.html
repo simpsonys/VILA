@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -115,6 +116,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
   <div style="display:flex;gap:8px;align-items:center">
     <button class="config-btn" id="updateBtn" onclick="checkForUpdates()" title="Check for updates">🔄 Update</button>
     <button class="config-btn" id="configBtn" onclick="openConfigFolder()" title="Open config file folder">⚙ Config</button>
+    <button class="btn btn-primary" id="refreshBtn" style="display:none" onclick="refreshAnalysis()" title="Reload config and re-analyze">↺ Refresh</button>
     <button class="btn btn-primary" id="exportBtn" style="display:none" onclick="doExport()">⬇ Export HTML + JSON</button>
   </div>
 </div>
@@ -254,6 +256,7 @@ let sortDir = 'asc';
 let sortState = {}; // track sort state: asc -> desc -> none
 let currentFileName = null;
 let currentFilePath = null;
+let currentRawText = null;
 let currentFilePath_base = null; // base filename without extension
 let currentEncoding = null;
 let APP_VERSION = '';
@@ -286,22 +289,24 @@ function initColumnFilters() {
 } 
 
 // ── Init: Load config ──
+let pendingDetailData = null;
 async function init() {
   if (window.electronAPI) {
+    // Register IPC listener FIRST before any await - avoids race condition
+    if (window.electronAPI.onSetUtteranceData) {
+      window.electronAPI.onSetUtteranceData((data) => {
+        isDetailWindow = true;
+        currentDetailData = data;
+        if (CONFIG) { displayDetailWindow(data); }
+        else { pendingDetailData = data; }
+      });
+    }
     CONFIG = await window.electronAPI.loadConfig();
     if (window.electronAPI.getAppVersion) {
       APP_VERSION = await window.electronAPI.getAppVersion();
       document.getElementById('appSub').textContent = `[${APP_VERSION}] by SimpsonYS`;
     }
-    
-    // Listen for detail window data
-    if (window.electronAPI.onSetUtteranceData) {
-      window.electronAPI.onSetUtteranceData((data) => {
-        isDetailWindow = true;
-        currentDetailData = data;
-        displayDetailWindow(data);
-      });
-    }
+    if (pendingDetailData) { displayDetailWindow(pendingDetailData); pendingDetailData = null; }
   }
   if (!APP_VERSION) {
     document.getElementById('appSub').textContent = '[dev build] by SimpsonYS';
@@ -369,6 +374,7 @@ function setupEventListeners() {
   setupSecondaryDropZone();
 
   document.addEventListener('paste', e => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
     const text = e.clipboardData?.getData('text');
     if (text && text.length > 10) { e.preventDefault(); processText(text, 'clipboard-paste'); }
   });
@@ -510,13 +516,29 @@ function processBuffer(buffer, name) {
   const text = new TextDecoder(enc).decode(buffer);
   currentEncoding = enc;
   currentFileName = name;
+  currentRawText = text;
   startParsing(text, name, enc);
 }
 
 function processText(text, name) {
   currentEncoding = 'utf-8';
   currentFileName = name;
+  currentRawText = text;
   startParsing(text, name, 'utf-8');
+}
+
+async function refreshAnalysis() {
+  if (!currentRawText || !currentFileName) { alert('분석된 파일이 없습니다.'); return; }
+  if (isAnalyzing) { alert('현재 분석 중입니다.'); return; }
+  if (window.electronAPI && window.electronAPI.loadConfig) {
+    const nc = await window.electronAPI.loadConfig();
+    if (nc) CONFIG = nc;
+  }
+  initColumnFilters();
+  document.getElementById('tableFilters').innerHTML = '';
+  document.getElementById('progressLayout').style.display = 'block';
+  document.getElementById('progressSplitLayout').style.display = 'none';
+  startParsing(currentRawText, currentFileName, currentEncoding || 'utf-8');
 }
 
 function startParsing(text, name, enc) {
@@ -610,7 +632,7 @@ function parseBlock(lines, lineNumbers = []) {
   for (const [gK, gC] of Object.entries(CONFIG.pattern_groups)) {
     const ml = [];
     for (const l of lines) for (const p of gC.patterns) { try { if (new RegExp(p).test(l)) { ml.push(l); break; } } catch {} }
-    if (ml.length > 0) e.patternGroups[gK] = { name: gC.name, lines: ml };
+    if (ml.length > 0) { e.patternGroups[gK] = { name: gC.name, lines: ml }; e[gK] = ml[0]; }
   }
   return e;
 }
@@ -620,6 +642,7 @@ function showProgress(name, enc) {
   document.getElementById('dropzone').style.display = 'none';
   document.getElementById('resultsArea').style.display = '';
   document.getElementById('exportBtn').style.display = '';
+  document.getElementById('refreshBtn').style.display = '';
   const pp = document.getElementById('progressPanel');
   pp.classList.add('show');
   document.getElementById('progressFile').textContent = `(${name})`;
@@ -694,6 +717,29 @@ function makeClickable(text) {
   return r;
 }
 
+function extractLogDisplay(line, colKey) {
+  if (!line) return null;
+  // Extract payload after last "> "
+  const arrowIdx = line.lastIndexOf('> ');
+  const payload = arrowIdx >= 0 ? line.substring(arrowIdx + 2).trim() : line.trim();
+  // For pattern_group columns: strip literal keyword prefix
+  if (CONFIG.pattern_groups && CONFIG.pattern_groups[colKey]) {
+    for (const p of CONFIG.pattern_groups[colKey].patterns) {
+      try {
+        if (new RegExp(p).test(payload)) {
+          const litMatch = p.match(/^([A-Za-z0-9_ ]+)/);
+          const prefix = litMatch ? litMatch[1].trim() : '';
+          if (prefix && payload.toLowerCase().startsWith(prefix.toLowerCase())) {
+            return payload.substring(prefix.length).trim() || payload;
+          }
+          return payload;
+        }
+      } catch {}
+    }
+  }
+  return payload;
+}
+
 function renderTable() {
   renderStats();
   const cols = CONFIG.table_columns;
@@ -708,16 +754,18 @@ function renderTable() {
     return `<div class="th" onclick="cycleSort('${c.key}')" title="Sort by ${c.label}">${c.label}<span class="sort-icon">${icon}</span></div>`;
   }).join('');
 
-  // Filter row
-  document.getElementById('tableFilters').style.gridTemplateColumns = gridCols;
-  document.getElementById('tableFilters').innerHTML = cols.map(c =>
-    `<div class="filter-cell"><input class="filter-input" placeholder="${c.label}..." data-col="${c.key}" value="${columnFilters[c.key] || ''}" oninput="renderTable()"></div>`
-  ).join('');
+  // Filter row - only build once to preserve focus
+  const filtersEl = document.getElementById('tableFilters');
+  if (filtersEl.querySelectorAll('.filter-input').length !== cols.length) {
+    filtersEl.style.gridTemplateColumns = gridCols;
+    filtersEl.innerHTML = cols.map(c =>
+      `<div class="filter-cell"><input class="filter-input" placeholder="${c.label}..." data-col="${c.key}" value="${columnFilters[c.key] || ''}" oninput="renderTableBody()"></div>`
+    ).join('');
+  }
 
-  // Collect column filters from inputs
-  document.querySelectorAll('.filter-input').forEach(inp => {
-    const col = inp.dataset.col;
-    columnFilters[col] = inp.value.toLowerCase();
+  // Collect current filter values without destroying elements
+  filtersEl.querySelectorAll('.filter-input').forEach(inp => {
+    columnFilters[inp.dataset.col] = inp.value.toLowerCase();
   });
 
   // Filter rows: global search + per-column filters
@@ -764,10 +812,11 @@ function renderTable() {
       const v = e[c.key];
       if (c.type === 'badge') return `<div class="td"><span class="badge badge-${v}">${v}</span></div>`;
       if (c.type === 'utterance') return `<div class="td"><span class="utt-link" title="Click to detail">${esc(v)}</span></div>`;
-      if (c.type === 'log' && v && e.lineNumbers && e.lineNumbers.length > 0) {
-        const idx = e.allLines.indexOf(v);
-        const lineNum = idx >= 0 ? e.lineNumbers[idx] : '';
-        return `<div class="td" title="Line: ${lineNum}">${esc(stripTs(v))} <span style="color:#64748b;font-size:10px">[L${lineNum}]</span></div>`;
+      if (c.type === 'log' && v) {
+        const display = extractLogDisplay(v, c.key);
+        const lineIdx = e.allLines ? e.allLines.indexOf(v) : -1;
+        const lineNum = (lineIdx >= 0 && e.lineNumbers) ? e.lineNumbers[lineIdx] : '';
+        return `<div class="td" title="${esc(v)}">${esc(display)}${lineNum ? ` <span style="color:#334155;font-size:10px">[L${lineNum}]</span>` : ''}</div>`;
       }
       if (c.clickable_key) {
         const cp = CONFIG.clickable_patterns[c.clickable_key];
@@ -780,6 +829,8 @@ function renderTable() {
     return `<div class="tr" style="grid-template-columns:${gridCols};animation-delay:${Math.min(i*0.015,0.4)}s" onclick="openDetailFromTable(${i})">${cells}</div>`;
   }).join('');
 }
+
+function renderTableBody() { renderTable(); }
 
 function cycleSort(col) {
   if (sortState[col] === 'asc') {
