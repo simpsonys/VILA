@@ -34,6 +34,13 @@ jobs:
       - name: Build Windows installer
         run: npm run build
 
+      - name: Get version from package.json
+        id: get_version
+        run: |
+          $version = (Get-Content package.json | ConvertFrom-Json).version
+          Add-Content -Path $env:GITHUB_OUTPUT -Value "version=$version"
+        shell: powershell
+
       - name: Create Release in target repo
         id: create_release
         uses: actions/create-release@v1
@@ -48,16 +55,16 @@ jobs:
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: dist/Voice Log Analyzer Setup ${{ github.ref_name }}.exe
-          asset_name: Voice Log Analyzer Setup ${{ github.ref_name }}.exe
+          asset_path: dist/Voice Log Analyzer Setup ${{ steps.get_version.outputs.version }}.exe
+          asset_name: Voice Log Analyzer Setup ${{ steps.get_version.outputs.version }}.exe
           asset_content_type: application/octet-stream
 
       - name: Upload blockmap
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: dist/Voice Log Analyzer Setup ${{ github.ref_name }}.exe.blockmap
-          asset_name: Voice Log Analyzer Setup ${{ github.ref_name }}.exe.blockmap
+          asset_path: dist/Voice Log Analyzer Setup ${{ steps.get_version.outputs.version }}.exe.blockmap
+          asset_name: Voice Log Analyzer Setup ${{ steps.get_version.outputs.version }}.exe.blockmap
           asset_content_type: application/octet-stream
 
       - name: Notify
