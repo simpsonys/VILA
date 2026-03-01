@@ -1,0 +1,44 @@
+{
+  "name": "voice-log-analyzer",
+  "version": "1.0.0",
+  "description": "Voice Interaction Log Analyzer - Utterance-level log analysis report tool",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win",
+    "build:portable": "electron-builder --win portable"
+  },
+  "author": "VD Division",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0"
+  },
+  "dependencies": {
+    "jschardet": "^3.1.3"
+  },
+  "build": {
+    "appId": "com.vd.voice-log-analyzer",
+    "productName": "Voice Log Analyzer",
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "allowToChangeInstallationDirectory": false
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "default_config.json"
+    ],
+    "extraResources": []
+  }
+}
