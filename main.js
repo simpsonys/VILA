@@ -1,4 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 
@@ -39,18 +40,7 @@ function createWindow() {
   win.loadFile("index.html");
 }
 
-app.whenReady().then(() => {
-  ensureConfig();
-  createWindow();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
 
 // IPC: Load config
 ipcMain.handle("load-config", async () => {
@@ -161,4 +151,103 @@ ipcMain.handle("open-external", async (event, url) => {
     console.error("Failed to open URL:", e);
     return false;
   }
+});
+
+// IPC: Check for updates
+ipcMain.handle("check-updates", async () => {
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return result;
+  } catch (e) {
+    console.error("Failed to check updates:", e);
+    return null;
+  }
+});
+
+// IPC: Download update
+ipcMain.handle("download-update", async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return true;
+  } catch (e) {
+    console.error("Failed to download update:", e);
+    return false;
+  }
+});
+
+// IPC: Install and restart
+ipcMain.handle("install-update", async () => {
+  autoUpdater.quitAndInstall();
+});
+
+// Auto-updater event listeners
+let mainWindow;
+
+app.whenReady().then(() => {
+  ensureConfig();
+  mainWindow = BrowserWindow.getAllWindows()[0];
+  if (!mainWindow) {
+    const win = new BrowserWindow({
+      width: 1400,
+      height: 900,
+      minWidth: 900,
+      minHeight: 600,
+      title: "Voice Interaction Log Analyzer",
+      backgroundColor: "#080a10",
+      webPreferences: {
+        preload: path.join(__dirname, "preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    mainWindow = win;
+  }
+
+  // Auto-updater events
+  autoUpdater.on("update-available", (info) => {
+    console.log("Update available:", info.version);
+    if (mainWindow) {
+      mainWindow.webContents.send("update-available", info);
+    }
+  });
+
+  autoUpdater.on("update-not-available", (info) => {
+    console.log("No updates available");
+    if (mainWindow) {
+      mainWindow.webContents.send("update-not-available", info);
+    }
+  });
+
+  autoUpdater.on("error", (err) => {
+    console.error("Update error:", err);
+    if (mainWindow) {
+      mainWindow.webContents.send("update-error", err.message);
+    }
+  });
+
+  autoUpdater.on("download-progress", (progressObj) => {
+    if (mainWindow) {
+      mainWindow.webContents.send("download-progress", progressObj);
+    }
+  });
+
+  autoUpdater.on("update-downloaded", (info) => {
+    console.log("Update downloaded:", info.version);
+    if (mainWindow) {
+      mainWindow.webContents.send("update-downloaded", info);
+    }
+  });
+
+  createWindow();
+  autoUpdater.checkForUpdatesAndNotify();
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+// Update mainWindow reference when new window is created
+app.on("window-all-closed", () => {
+  mainWindow = null;
+  if (process.platform !== "darwin") app.quit();
 });

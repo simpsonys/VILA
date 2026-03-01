@@ -113,6 +113,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
+    <button class="config-btn" id="updateBtn" onclick="checkForUpdates()" title="Check for updates">🔄 Update</button>
     <button class="config-btn" id="configBtn" onclick="openConfigFolder()" title="Open config file folder">⚙ Config</button>
     <button class="btn btn-primary" id="exportBtn" style="display:none" onclick="doExport()">⬇ Export HTML + JSON</button>
   </div>
@@ -180,6 +181,28 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
       <button style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer" onclick="closeScreenshotViewer()">✕</button>
     </div>
     <img id="screenshotImage" src="" alt="Screenshot" style="max-width:100%;max-height:100%;transform-origin:center;transition:transform 0.1s" onclick="event.stopPropagation()">
+  </div>
+</div>
+
+<!-- Update Status Modal -->
+<div class="modal-overlay" id="updateModal" onclick="closeUpdateModal()">
+  <div class="modal-body" onclick="event.stopPropagation()" style="max-width:500px">
+    <div class="modal-hdr">
+      <h2 style="margin:0;font-size:16px;font-weight:600;">Update Status</h2>
+      <button class="modal-close" onclick="closeUpdateModal()">✕</button>
+    </div>
+    <div style="padding:28px;display:flex;flex-direction:column;gap:16px">
+      <div id="updateContent">
+        <div style="text-align:center;padding:40px 20px">
+          <div style="font-size:14px;color:#94a3b8">Checking for updates...</div>
+          <div style="margin-top:16px;animation:pulse 1s infinite">⏳</div>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #1e2433;padding-top:16px;margin-top:16px">
+        <button class="btn btn-ghost" onclick="closeUpdateModal()">Close</button>
+        <button class="btn btn-primary" id="updateActionBtn" style="display:none" onclick="handleUpdateAction()">Install & Restart</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -301,6 +324,53 @@ function setupEventListeners() {
       changeZoom(e.deltaY < 0 ? 0.1 : -0.1);
     }
   }, { passive: false });
+
+  // Setup update listeners
+  if (window.electronAPI) {
+    if (window.electronAPI.onUpdateAvailable) {
+      window.electronAPI.onUpdateAvailable((info) => {
+        showUpdateModal('New version available! Version: ' + info.version, 'downloading');
+        if (window.electronAPI.downloadUpdate) {
+          window.electronAPI.downloadUpdate();
+        }
+      });
+    }
+
+    if (window.electronAPI.onUpdateNotAvailable) {
+      window.electronAPI.onUpdateNotAvailable(() => {
+        showUpdateModal('You are running the latest version.', 'uptodate');
+      });
+    }
+
+    if (window.electronAPI.onDownloadProgress) {
+      window.electronAPI.onDownloadProgress((progress) => {
+        const percent = Math.round((progress.transferred / progress.total) * 100);
+        const content = document.getElementById('updateContent');
+        if (content) {
+          content.innerHTML = `<div style="text-align:center;padding:20px">
+            <div style="font-size:14px;color:#94a3b8;margin-bottom:12px">Downloading update...</div>
+            <div style="background:#1e2433;border-radius:8px;height:6px;overflow:hidden;margin-bottom:8px">
+              <div style="height:100%;background:#60dcfa;width:${percent}%;transition:width 0.1s"></div>
+            </div>
+            <div style="font-size:12px;color:#64748b">${percent}% (${(progress.transferred / 1024 / 1024).toFixed(1)} MB)</div>
+          </div>`;
+        }
+      });
+    }
+
+    if (window.electronAPI.onUpdateDownloaded) {
+      window.electronAPI.onUpdateDownloaded((info) => {
+        showUpdateModal('Update downloaded! Ready to install.', 'ready');
+        document.getElementById('updateActionBtn').style.display = 'block';
+      });
+    }
+
+    if (window.electronAPI.onUpdateError) {
+      window.electronAPI.onUpdateError((error) => {
+        showUpdateModal('Update check failed: ' + error, 'error');
+      });
+    }
+  }
 }
 
 // ── File reading ──
@@ -854,6 +924,77 @@ function resetApp() {
   document.getElementById('resultsArea').style.display = 'none';
   document.getElementById('exportBtn').style.display = 'none';
   document.getElementById('progressPanel').classList.remove('show');
+}
+
+
+// ── Update ──
+let updateState = null;
+
+async function checkForUpdates() {
+  showUpdateModal('Checking for updates...', 'checking');
+  if (window.electronAPI && window.electronAPI.checkUpdates) {
+    try {
+      const result = await window.electronAPI.checkUpdates();
+      console.log('Update check result:', result);
+    } catch (e) {
+      console.error('Update check error:', e);
+      showUpdateModal('Update check failed', 'error');
+    }
+  } else {
+    showUpdateModal('Update check not available in this version', 'error');
+  }
+}
+
+function showUpdateModal(message, state) {
+  updateState = state;
+  const modal = document.getElementById('updateModal');
+  const content = document.getElementById('updateContent');
+  const actionBtn = document.getElementById('updateActionBtn');
+  
+  actionBtn.style.display = 'none';
+  
+  let html = '';
+  if (state === 'checking') {
+    html = `<div style="text-align:center;padding:40px 20px">
+      <div style="font-size:14px;color:#94a3b8">Checking for updates...</div>
+      <div style="margin-top:16px;animation:pulse 1s infinite">⏳</div>
+    </div>`;
+  } else if (state === 'uptodate') {
+    html = `<div style="text-align:center;padding:40px 20px">
+      <div style="font-size:18px;margin-bottom:8px">✓</div>
+      <div style="font-size:14px;color:#94a3b8">${message}</div>
+    </div>`;
+  } else if (state === 'downloading') {
+    html = `<div style="text-align:center;padding:20px">
+      <div style="font-size:14px;color:#94a3b8;margin-bottom:12px">${message}</div>
+      <div style="animation:pulse 1s infinite">⬇️</div>
+    </div>`;
+  } else if (state === 'ready') {
+    html = `<div style="text-align:center;padding:40px 20px">
+      <div style="font-size:18px;margin-bottom:8px">🎉</div>
+      <div style="font-size:14px;color:#94a3b8">${message}</div>
+    </div>`;
+    actionBtn.style.display = 'block';
+  } else if (state === 'error') {
+    html = `<div style="text-align:center;padding:40px 20px">
+      <div style="font-size:18px;margin-bottom:8px">⚠️</div>
+      <div style="font-size:14px;color:#f87171">${message}</div>
+    </div>`;
+  }
+  
+  content.innerHTML = html;
+  modal.classList.add('open');
+}
+
+function closeUpdateModal() {
+  const modal = document.getElementById('updateModal');
+  modal.classList.remove('open');
+}
+
+async function handleUpdateAction() {
+  if (updateState === 'ready' && window.electronAPI && window.electronAPI.installUpdate) {
+    window.electronAPI.installUpdate();
+  }
 }
 
 async function openConfigFolder() {
