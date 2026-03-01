@@ -32,7 +32,7 @@ jobs:
         run: npm run prebuild
 
       - name: Build Windows installer
-        run: npm run build
+        run: npm run build -- -c.publish=never
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
 
@@ -66,6 +66,14 @@ jobs:
           asset_path: dist/Voice Log Analyzer Setup ${{ steps.get_version.outputs.version }}.exe.blockmap
           asset_name: Voice Log Analyzer Setup ${{ steps.get_version.outputs.version }}.exe.blockmap
           asset_content_type: application/octet-stream
+          
+      - name: Upload latest.yml
+              uses: actions/upload-release-asset@v1
+              with:
+                upload_url: ${{ steps.create_release.outputs.upload_url }}
+                asset_path: dist/latest.yml
+                asset_name: latest.yml
+                asset_content_type: text/yaml
 
       - name: Notify
         run: echo "Published release ${{ github.ref_name }} to ${{ env.RELEASE_REPO }}"
