@@ -116,6 +116,10 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
   <div style="display:flex;gap:8px;align-items:center">
     <button class="config-btn" id="updateBtn" onclick="checkForUpdates()" title="Check for updates">🔄 Update</button>
     <button class="config-btn" id="configBtn" onclick="openConfigFolder()" title="Open config file folder">⚙ Config</button>
+    <label id="streamingLabel" style="display:none;align-items:center;gap:6px;font-size:12px;color:#64748b;cursor:pointer;user-select:none;margin-right:8px">
+      <input type="checkbox" id="streamingToggle" onchange="toggleStreamingMode()" style="cursor:pointer;width:16px;height:16px">
+      <span>Streaming</span>
+    </label>
     <button class="btn btn-primary" id="refreshBtn" style="display:none" onclick="refreshAnalysis()" title="Reload config and re-analyze">↺ Refresh</button>
     <button class="btn btn-primary" id="exportBtn" style="display:none" onclick="doExport()">⬇ Export HTML + JSON</button>
   </div>
@@ -267,6 +271,7 @@ let detailWindows = []; // track open detail windows
 let parseInterrupt = false; // flag to interrupt parsing
 let isDetailWindow = false; // track if this window is a detail display
 let currentDetailData = null; // holds utterance data if this is a detail window
+let streamingMode = false; // streaming analysis mode (false = wait until complete, true = show results in real-time)
 
 // zoom state
 let zoomLevel = 1;
@@ -286,11 +291,25 @@ function initColumnFilters() {
       columnFilters[col.key] = '';
     });
   }
+}
+
+// Toggle streaming mode
+function toggleStreamingMode() {
+  streamingMode = document.getElementById('streamingToggle').checked;
+  // Store preference in localStorage
+  localStorage.setItem('streamingMode', streamingMode);
 } 
 
 // ── Init: Load config ──
 let pendingDetailData = null;
 async function init() {
+  // Restore streaming mode preference from localStorage
+  const savedStreamingMode = localStorage.getItem('streamingMode');
+  if (savedStreamingMode !== null) {
+    streamingMode = savedStreamingMode === 'true';
+    document.getElementById('streamingToggle').checked = streamingMode;
+  }
+  
   if (window.electronAPI) {
     // Register IPC listener FIRST before any await - avoids race condition
     if (window.electronAPI.onSetUtteranceData) {
@@ -677,6 +696,8 @@ function showProgress(name, enc) {
   document.getElementById('resultsArea').style.display = '';
   document.getElementById('exportBtn').style.display = '';
   document.getElementById('refreshBtn').style.display = '';
+  document.getElementById('streamingLabel').style.display = 'flex';
+  
   const pp = document.getElementById('progressPanel');
   pp.classList.add('show');
   document.getElementById('progressFile').textContent = `(${name})`;
@@ -693,12 +714,18 @@ function updateProgress(processed, total, found, matched) {
   document.getElementById('progressCount').textContent = `${processed.toLocaleString()} / ${total.toLocaleString()} lines`;
   document.getElementById('progFound').textContent = found;
   document.getElementById('progMatched').textContent = matched;
-  renderTable();
+  // Only render table in real-time if streaming mode is enabled
+  if (streamingMode) {
+    renderTable();
+  }
 }
 
 function finishParsing() {
   isAnalyzing = false;
   parseInterrupt = false;
+  
+  // Hide streaming mode toggle after analysis complete
+  document.getElementById('streamingLabel').style.display = 'none';
   
   // Copy values to split layout
   document.getElementById('progressFile2').textContent = document.getElementById('progressFile').textContent;
