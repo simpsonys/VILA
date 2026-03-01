@@ -32,7 +32,7 @@ jobs:
         run: npm run prebuild
 
       - name: Build Windows installer
-        run: npm run build -- -c.publish=never
+        run: npm run build -- --publish=never
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
 
