@@ -76,7 +76,56 @@ npm run build
 
 ## 3️⃣ 배포 프로세스
 
-### Release 생성 및 파일 업로드
+### Recommended automated release (from Private repo)
+
+Instead of committing large installer files into the public repo, use the CI workflow in the private repo to build and publish releases into the public `VILA_Release` repo. This avoids polluting git history with big binaries and keeps source private.
+
+Prerequisites:
+- Create a Personal Access Token (PAT) with `repo` scope (repo access to the target public repo). Add it to the **Private** repo secrets as `RELEASE_PAT`.
+- Make sure the public repo exists: `simpsonys/VILA_Release`.
+
+How it works:
+1. Push a tag in the private repo (e.g. `v1.0.2`).
+2. GitHub Actions in the private repo runs on `windows-latest`, builds the installer, creates a Release on `simpsonys/VILA_Release`, and uploads the `dist/*.exe` and `.blockmap` assets.
+
+Workflow file (already added to this repo): `.github/workflows/build-and-release.yml`
+
+Important: define the secret `RELEASE_PAT` in the private repo settings (Repository > Settings > Secrets > Actions). The workflow uses this PAT to create releases in the public repo and upload assets.
+
+### Optional: Use GitHub CLI or GH Actions locally
+
+If you want to manually publish a built artifact without committing it to the public repo, you can use `gh` CLI:
+
+```bash
+# Authenticate: gh auth login
+gh release create v1.0.2 \
+  "dist/Voice Log Analyzer Setup 1.0.2.exe" \
+  "dist/Voice Log Analyzer Setup 1.0.2.exe.blockmap" \
+  --repo simpsonys/VILA_Release \
+  --title "Voice Log Analyzer v1.0.2" \
+  --notes "Release notes here"
+```
+
+### Git LFS recommendation
+
+GitHub warns on files >50MB. We recommend NOT storing large binary installers in the main repository history. Two options:
+
+1. Use the CI workflow above that builds and uploads directly to the Release (recommended).
+2. If you must keep binaries in the repo, enable Git LFS on the **public** repo and track `.exe` and `.blockmap` files:
+
+```bash
+# On developer machine
+git lfs install
+git lfs track "dist/*.exe"
+git lfs track "dist/*.blockmap"
+git add .gitattributes
+git add dist/*
+git commit -m "Add release assets via LFS"
+git push
+```
+
+Using LFS will store large files outside main git objects and is better for repo size management.
+
 
 VILA-Releases(Public) 저장소에 Release를 생성합니다.
 

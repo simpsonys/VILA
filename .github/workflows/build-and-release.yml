@@ -1,0 +1,64 @@
+name: Build and Publish Release to VILA_Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  RELEASE_REPO: simpsonys/VILA_Release
+
+jobs:
+  build_and_release:
+    name: Build (Windows) and Publish to Release Repo
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate build-time
+        run: npm run prebuild
+
+      - name: Build Windows installer
+        run: npm run build
+
+      - name: Create Release in target repo
+        id: create_release
+        uses: actions/create-release@v1
+        with:
+          token: ${{ secrets.RELEASE_PAT }}
+          repository: ${{ env.RELEASE_REPO }}
+          tag_name: ${{ github.ref_name }}
+          release_name: ${{ github.ref_name }}
+          generate_release_notes: true
+
+      - name: Upload installer (.exe)
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: dist/Voice Log Analyzer Setup ${{ github.ref_name }}.exe
+          asset_name: Voice Log Analyzer Setup ${{ github.ref_name }}.exe
+          asset_content_type: application/octet-stream
+
+      - name: Upload blockmap
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: dist/Voice Log Analyzer Setup ${{ github.ref_name }}.exe.blockmap
+          asset_name: Voice Log Analyzer Setup ${{ github.ref_name }}.exe.blockmap
+          asset_content_type: application/octet-stream
+
+      - name: Notify
+        run: echo "Published release ${{ github.ref_name }} to ${{ env.RELEASE_REPO }}"
