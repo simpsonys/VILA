@@ -106,19 +106,42 @@ function parseBlock(lines, lineNumbers, config) {
     } catch {}
   }
 
-  // Extract utterance patterns
-  for (const [, cfg] of Object.entries(config.utterance_patterns || {})) {
-    try {
-      const re = new RegExp(cfg.pattern);
-      for (const l of lines) {
-        const m = l.match(re);
-        if (m) {
-          e.utterance = cfg.utterance.replace('{value}', m[1].trim());
-          break;
-        }
+  // Extract utterance patterns - search all lines thoroughly
+  if (!e.utterance) {
+    for (const l of lines) {
+      // Check all patterns against each line
+      for (const [, cfg] of Object.entries(config.utterance_patterns || {})) {
+        try {
+          const re = new RegExp(cfg.pattern);
+          const m = l.match(re);
+          if (m) {
+            e.utterance = cfg.utterance.replace('{value}', m[1].trim());
+            break;
+          }
+        } catch {}
       }
       if (e.utterance) break;
-    } catch {}
+    }
+  }
+  
+  // If still no utterance, extract from start line if it matches pattern
+  if (!e.utterance && lines.length > 0) {
+    const firstLine = lines[0];
+    // Try comma-separated format
+    const commaIdx = firstLine.indexOf(',');
+    if (commaIdx > -1) {
+      const extracted = firstLine.substring(commaIdx + 1).trim();
+      if (extracted && extracted.length > 0) {
+        e.utterance = extracted;
+      }
+    }
+    // Try bracket format
+    if (!e.utterance) {
+      const bracketMatch = firstLine.match(/\[([^\]]+)\]/);
+      if (bracketMatch) {
+        e.utterance = bracketMatch[1];
+      }
+    }
   }
 
   // Determine result status

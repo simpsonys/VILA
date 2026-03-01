@@ -611,12 +611,22 @@ function parseBlock(lines, lineNumbers = []) {
     } catch {}
   }
 
-  for (const [, cfg] of Object.entries(CONFIG.utterance_patterns)) {
-    try {
-      const re = new RegExp(cfg.pattern);
-      for (const l of lines) { const m = l.match(re); if (m) { e.utterance = cfg.utterance.replace('{value}', m[1].trim()); break; } }
-      if (e.utterance) break;
-    } catch {}
+  // 발화 패턴 추출: 모든 라인에 대해 상세 검색
+  if (!e.utterance) {
+    for (const l of lines) {
+      // 각 라인에서 모든 패턴을 동시에 검사
+      for (const [, cfg] of Object.entries(CONFIG.utterance_patterns)) {
+        try {
+          const re = new RegExp(cfg.pattern);
+          const m = l.match(re);
+          if (m) { 
+            e.utterance = cfg.utterance.replace('{value}', m[1].trim()); 
+            break; // 해당 라인에서 매칭 성공 시 종료
+          }
+        } catch {}
+      }
+      if (e.utterance) break; // 발화 찾음, 모든 라인 검사 종료
+    }
   }
 
   let hasS = false, hasF = false;
@@ -629,7 +639,31 @@ function parseBlock(lines, lineNumbers = []) {
   else if (!hasS && hasF) e.result = 'FAIL';
   else e.result = 'Unknown';
 
-  for (const [gK, gC] of Object.entries(CONFIG.pattern_groups)) {
+  // 발화가 없으면 START 라인에서 발화 추출 시도
+  if (!e.utterance && lines.length > 0) {
+    const firstLine = lines[0];
+    // START 라인이 "cmd_from_mockapp, <content>" 패턴이면 발화로 사용
+    // 또는 다른 START 패턴에서 쉼표 뒤 내용 추출
+    for (const startPattern of CONFIG.start_patterns || []) {
+      if (firstLine.includes(startPattern)) {
+        // 쉼표가 있으면 그 뒤의 내용을 발화로 사용
+        const commaIdx = firstLine.indexOf(',');
+        if (commaIdx > -1) {
+          const extracted = firstLine.substring(commaIdx + 1).trim();
+          if (extracted && extracted.length > 0) {
+            e.utterance = extracted;
+            break;
+          }
+        }
+        // 또는 괄호 안의 내용
+        const bracketMatch = firstLine.match(/\[([^\]]+)\]/);
+        if (bracketMatch) {
+          e.utterance = bracketMatch[1];
+          break;
+        }
+      }
+    }
+  }
     const ml = [];
     for (const l of lines) for (const p of gC.patterns) { try { if (new RegExp(p).test(l)) { ml.push(l); break; } } catch {} }
     if (ml.length > 0) { e.patternGroups[gK] = { name: gC.name, lines: ml }; e[gK] = ml[0]; }
