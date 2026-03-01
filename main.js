@@ -3,6 +3,13 @@ const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 
+// Configure autoUpdater to use VILA_Release repository
+autoUpdater.setFeedURL({
+  provider: 'github',
+  owner: 'simpsonys',
+  repo: 'VILA_Release'
+});
+
 const CONFIG_NAME = "pattern_config.json";
 
 function getConfigPath() {
