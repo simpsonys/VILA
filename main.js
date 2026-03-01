@@ -79,18 +79,34 @@ ipcMain.handle("open-file-dialog", async () => {
   return result.filePaths[0];
 });
 
-// IPC: Save export files
+// IPC: Save export files with custom filename (Save As dialog)
 ipcMain.handle("save-export", async (event, { jsonData, htmlData, baseName }) => {
-  const result = await dialog.showOpenDialog({
-    properties: ["openDirectory"],
-    title: "Select export destination folder",
+  const now = new Date();
+  const timestamp = now.getFullYear().toString().slice(2) +
+                    String(now.getMonth() + 1).padStart(2, '0') +
+                    String(now.getDate()).padStart(2, '0') +
+                    String(now.getHours()).padStart(2, '0') +
+                    String(now.getMinutes()).padStart(2, '0');
+  const defaultFileName = baseName || `${timestamp}_report`;
+  
+  const result = await dialog.showSaveDialog({
+    title: "Export Analysis Report as HTML",
+    defaultPath: `${defaultFileName}_report.html`,
+    filters: [
+      { name: "HTML Report", extensions: ["html"] },
+      { name: "All Files", extensions: ["*"] },
+    ],
   });
+  
   if (result.canceled) return null;
-  const dir = result.filePaths[0];
-  const jsonPath = path.join(dir, `${baseName}_data.json`);
-  const htmlPath = path.join(dir, `${baseName}_report.html`);
-  fs.writeFileSync(jsonPath, jsonData, "utf-8");
+  
+  const htmlPath = result.filePath;
+  const dir = path.dirname(htmlPath);
+  const basename = path.basename(htmlPath, path.extname(htmlPath));
+  const jsonPath = path.join(dir, `${basename}_data.json`);
+  
   fs.writeFileSync(htmlPath, htmlData, "utf-8");
+  fs.writeFileSync(jsonPath, jsonData, "utf-8");
   return { jsonPath, htmlPath };
 });
 
@@ -153,6 +169,31 @@ ipcMain.handle("open-external", async (event, url) => {
   }
 });
 
+// IPC: Open detail window for utterance
+ipcMain.handle("open-detail-window", async (event, { utteranceData, utteranceIndex }) => {
+  const detailWindow = new BrowserWindow({
+    width: 900,
+    height: 700,
+    minWidth: 600,
+    minHeight: 500,
+    title: `Utterance Detail - ${utteranceIndex}`,
+    backgroundColor: "#080a10",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+  
+  detailWindow.webContents.once("ready-to-show", () => {
+    detailWindow.webContents.send("set-utterance-data", { utteranceData, utteranceIndex });
+  });
+  
+  detailWindow.loadFile("index.html");
+  detailWindow.setMenuBarVisibility(false);
+  return { windowId: detailWindow.id };
+});
+
 // IPC: Check for updates
 ipcMain.handle("check-updates", async () => {
   try {
@@ -185,23 +226,8 @@ let mainWindow;
 
 app.whenReady().then(() => {
   ensureConfig();
+  createWindow();
   mainWindow = BrowserWindow.getAllWindows()[0];
-  if (!mainWindow) {
-    const win = new BrowserWindow({
-      width: 1400,
-      height: 900,
-      minWidth: 900,
-      minHeight: 600,
-      title: "Voice Interaction Log Analyzer",
-      backgroundColor: "#080a10",
-      webPreferences: {
-        preload: path.join(__dirname, "preload.js"),
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
-    mainWindow = win;
-  }
 
   // Auto-updater events
   autoUpdater.on("update-available", (info) => {
@@ -238,7 +264,6 @@ app.whenReady().then(() => {
     }
   });
 
-  createWindow();
   autoUpdater.checkForUpdatesAndNotify();
 
   app.on("activate", () => {

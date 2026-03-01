@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getScreenshots: (logFilePath) => ipcRenderer.invoke("get-screenshots", logFilePath),
   readScreenshot: (filePath) => ipcRenderer.invoke("read-screenshot", filePath),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
+  openDetailWindow: (data) => ipcRenderer.invoke("open-detail-window", data),
+  onSetUtteranceData: (callback) => ipcRenderer.on("set-utterance-data", (event, data) => callback(data)),
   
   // Auto-update methods
   checkUpdates: () => ipcRenderer.invoke("check-updates"),

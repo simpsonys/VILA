@@ -224,6 +224,8 @@ let columnFilters = {}; // per-column search filters
 let isAnalyzing = false; // track if analysis is in progress
 let detailWindows = []; // track open detail windows
 let parseInterrupt = false; // flag to interrupt parsing
+let isDetailWindow = false; // track if this window is a detail display
+let currentDetailData = null; // holds utterance data if this is a detail window
 
 // zoom state
 let zoomLevel = 1;
@@ -252,6 +254,15 @@ async function init() {
     if (window.electronAPI.getAppVersion) {
       APP_VERSION = await window.electronAPI.getAppVersion();
       document.getElementById('appSub').textContent = `[${APP_VERSION}] by SimpsonYS`;
+    }
+    
+    // Listen for detail window data
+    if (window.electronAPI.onSetUtteranceData) {
+      window.electronAPI.onSetUtteranceData((data) => {
+        isDetailWindow = true;
+        currentDetailData = data;
+        displayDetailWindow(data);
+      });
     }
   }
   if (!APP_VERSION) {
@@ -683,7 +694,7 @@ function renderTable() {
       }
       return `<div class="td">${esc(v)}</div>`;
     }).join('');
-    return `<div class="tr" style="grid-template-columns:${gridCols};animation-delay:${Math.min(i*0.015,0.4)}s" onclick="showDetail(${i})">${cells}</div>`;
+    return `<div class="tr" style="grid-template-columns:${gridCols};animation-delay:${Math.min(i*0.015,0.4)}s" onclick="openDetailFromTable(${i})">${cells}</div>`;
   }).join('');
 }
 
@@ -731,6 +742,96 @@ function copyToClipboard(text) {
     document.body.removeChild(ta);
     alert('낵이 클립보드에 복사되었습니다.');
   }
+}
+
+// ── Detail Window Handler ──
+async function openDetailFromTable(idx) {
+  const e = filteredData[idx];
+  if (!e) return;
+  
+  // If in detail window or if electronAPI not available, show modal
+  if (isDetailWindow || !window.electronAPI || !window.electronAPI.openDetailWindow) {
+    showDetail(idx);
+    return;
+  }
+  
+  // Open new detail window
+  try {
+    await window.electronAPI.openDetailWindow({ utteranceData: e, utteranceIndex: idx + 1 });
+  } catch (err) {
+    console.error("Failed to open detail window:", err);
+    showDetail(idx);
+  }
+}
+
+async function displayDetailWindow(data) {
+  const { utteranceData: e, utteranceIndex } = data;
+  if (!e) return;
+  
+  // Hide the main table and dropzone
+  const main = document.querySelector('.main');
+  if (main) main.style.display = 'none';
+  
+  // Hide the header partially
+  const header = document.querySelector('.header');
+  if (header) {
+    const exportBtn = header.querySelector('#exportBtn');
+    const configBtn = header.querySelector('#configBtn');
+    if (exportBtn) exportBtn.style.display = 'none';
+    if (configBtn) configBtn.style.display = 'none';
+  }
+  
+  // Create detail container
+  let h = `<div class="modal-body" style="max-width:none;height:100vh;display:flex;flex-direction:column;border-radius:0">`;
+  h += `<div class="modal-hdr" style="border-bottom:1px solid #1e2433"><div style="flex:1"><div style="font-size:18px;font-weight:700">Utterance Detail #${utteranceIndex}</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div></div>`;
+  h += '<div class="modal-content" style="flex:1;overflow-y:auto"><div class="meta-grid">';
+
+  [{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Utterance',v:e.utterance},{l:'Result',v:e.result,b:1}].forEach(m => {
+    h += `<div class="meta-card"><div class="meta-label">${m.l}</div>`;
+    if (m.b) h += `<span class="badge badge-${m.v}">${m.v}</span>`;
+    else if (m.ck && CONFIG.clickable_patterns[m.ck] && CONFIG.clickable_patterns[m.ck].url_template && m.v)
+      h += `<a href="${CONFIG.clickable_patterns[m.ck].url_template.replace('{value}', m.v)}" target="_blank" class="click-link" style="font-size:13px;font-family:Consolas,monospace;word-break:break-all" onclick="window.electronAPI.openExternal('${CONFIG.clickable_patterns[m.ck].url_template.replace('{value}', m.v)}');return false">${esc(m.v)}</a>`;
+    else h += `<div class="meta-val">${esc(m.v)}</div>`;
+    h += '</div>';
+  });
+  h += '</div>';
+
+  if (e.successLine) h += `<div class="section"><div class="sec-title" style="color:#34d399">✓ Success Match</div><div class="succ-box">${makeClickable(stripTs(e.successLine))}</div></div>`;
+  if (e.failLines.length > 0) h += `<div class="section"><div class="sec-title" style="color:#f87171">✗ Failure Matches</div><div class="fail-box">${e.failLines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+
+  if (Object.keys(e.patternGroups).length > 0) {
+    h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
+    for (const [, g] of Object.entries(e.patternGroups)) {
+      const groupText = g.lines.join('\n');
+      h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+    }
+    h += '</div>';
+  }
+
+  // Load screenshots
+  if (window.electronAPI && currentFilePath) {
+    const screenshots = await window.electronAPI.getScreenshots(currentFilePath);
+    if (screenshots && screenshots.length > 0) {
+      h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin-top:8px">';
+      screenshots.forEach((ss, i) => {
+        h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:border 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}"><span style="font-size:24px;opacity:0.5">🖼</span></div>`;
+      });
+      h += '</div></div>';
+    }
+  }
+
+  h += `<div class="section"><div class="sec-title" style="color:#94a3b8">All Valid Logs (${e.allLines.length} lines)</div><div class="log-box">${e.allLines.map((l, i) => `<span style="color:#334155;min-width:30px;display:inline-block;text-align:right;margin-right:10px;user-select:none">${i+1}</span>${makeClickable(stripTs(l))}`).join('<br>')}</div></div></div></div>`;
+
+  // Create a container for detail view
+  let detailContainer = document.getElementById('detailWindowContainer');
+  if (!detailContainer) {
+    detailContainer = document.createElement('div');
+    detailContainer.id = 'detailWindowContainer';
+    detailContainer.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:999;background:#080a10;overflow-y:auto';
+    document.body.appendChild(detailContainer);
+  }
+  
+  detailContainer.innerHTML = h;
 }
 
 // ── Detail Modal ──
