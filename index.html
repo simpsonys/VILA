@@ -56,6 +56,10 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
 /* Table */
 .table-wrap { background: #0b0e15; border: 1px solid #1e2433; border-radius: 12px; overflow: hidden; }
 .table-head { display: grid; background: #0f1219; border-bottom: 1px solid #1e2433; }
+.table-filters { display: grid; background: #0a0d14; border-bottom: 1px solid #1e2433; }
+.filter-cell { padding: 8px 14px; }
+.filter-input { background: #0f1117; border: 1px solid #1e2433; border-radius: 4px; padding: 4px 8px; color: #e2e8f0; font-size: 11px; width: 100%; outline: none; }
+.filter-input:focus { border-color: #2a4a7c; }
 .th { padding: 10px 14px; font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; cursor: pointer; user-select: none; display: flex; align-items: center; }
 .th:hover { color: #94a3b8; }
 .sort-icon { margin-left: 4px; font-size: 10px; }
@@ -154,6 +158,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
     </div>
     <div class="table-wrap">
       <div class="table-head" id="tableHead"></div>
+      <div class="table-filters" id="tableFilters"></div>
       <div class="table-body" id="tableBody"></div>
     </div>
   </div>
@@ -185,11 +190,17 @@ let entries = [];
 let filteredData = [];
 let sortCol = null;
 let sortDir = 'asc';
+let sortState = {}; // track sort state: asc -> desc -> none
 let currentFileName = null;
 let currentFilePath = null;
+let currentFilePath_base = null; // base filename without extension
 let currentEncoding = null;
 let APP_VERSION = '';
 let screenshotViewerScale = 1;
+let columnFilters = {}; // per-column search filters
+let isAnalyzing = false; // track if analysis is in progress
+let detailWindows = []; // track open detail windows
+let parseInterrupt = false; // flag to interrupt parsing
 
 // zoom state
 let zoomLevel = 1;
@@ -199,6 +210,16 @@ function applyZoom() {
 function changeZoom(delta) {
   zoomLevel = Math.min(Math.max(0.5, zoomLevel + delta), 3);
   applyZoom();
+}
+
+// Initialize column filters
+function initColumnFilters() {
+  columnFilters = {};
+  if (CONFIG && CONFIG.table_columns) {
+    CONFIG.table_columns.forEach(col => {
+      columnFilters[col.key] = '';
+    });
+  }
 } 
 
 // ── Init: Load config ──
@@ -287,8 +308,17 @@ async function openFile() {
   if (window.electronAPI) {
     const filePath = await window.electronAPI.openFileDialog();
     if (filePath) {
+      if (isAnalyzing) {
+        const shouldContinue = confirm('동쥠: 파일 분석이 진행 중입니다. 취소하고 새 파일을 분석하시겠습니까?');
+        if (!shouldContinue) return;
+        parseInterrupt = true;
+      }
       const buffer = await window.electronAPI.readFileBuffer(filePath);
-      const name = filePath.split(/[\\/]/).pop();      currentFilePath = filePath;      processBuffer(new Uint8Array(buffer).buffer, name);
+      const name = filePath.split(/[\\\/]/).pop();
+      const baseName = name.replace(/\.[^.]*$/, '');
+      currentFilePath = filePath;
+      currentFilePath_base = baseName;
+      processBuffer(new Uint8Array(buffer).buffer, name);
     }
   } else {
     const input = document.createElement('input');
@@ -352,31 +382,37 @@ function processText(text, name) {
 
 function startParsing(text, name, enc) {
   entries = [];
+  parseInterrupt = false;
+  isAnalyzing = true;
   sortCol = null; sortDir = 'asc';
+  sortState = {};
   document.getElementById('searchBox').value = '';
+  initColumnFilters();
   showProgress(name, enc);
 
   const lines = text.split('\n'), total = lines.length;
   const startREs = CONFIG.start_patterns.map(p => new RegExp(p));
   const endREs = CONFIG.end_patterns.map(p => new RegExp(p));
-  let buffer = [], inBlock = false, idx = 0, found = 0, matched = 0;
+  let buffer = [], bufferLines = [], inBlock = false, idx = 0, found = 0, matched = 0;
   const CHUNK = 4000;
 
   function tick() {
+    if (parseInterrupt) { finishParsing(); return; }
     const end = Math.min(idx + CHUNK, total);
     for (; idx < end; idx++) {
       const t = lines[idx].trim(); if (!t) continue;
       const isS = startREs.some(r => r.test(t));
       const isE = endREs.some(r => r.test(t));
-      if (isS && !inBlock) { buffer = [t]; inBlock = true; }
+      if (isS && !inBlock) { buffer = [t]; bufferLines = [idx + 1]; inBlock = true; }
       else if (isE && inBlock) {
         buffer.push(t);
-        const entry = parseBlock(buffer);
+        bufferLines.push(idx + 1);
+        const entry = parseBlock(buffer, bufferLines);
         entries.push(entry);
         found++; matched += buffer.length;
-        buffer = []; inBlock = false;
+        buffer = []; bufferLines = []; inBlock = false;
       }
-      else if (inBlock) { buffer.push(t); }
+      else if (inBlock) { buffer.push(t); bufferLines.push(idx + 1); }
     }
     updateProgress(idx, total, found, matched);
     if (idx < total) { requestAnimationFrame(tick); }
@@ -385,11 +421,11 @@ function startParsing(text, name, enc) {
   requestAnimationFrame(tick);
 }
 
-function parseBlock(lines) {
+function parseBlock(lines, lineNumbers = []) {
   const e = {
     id: Date.now() + '_' + Math.random().toString(36).substr(2,6),
     conversationId: null, requestId: null, utterance: null,
-    result: 'Unknown', successLine: null, failLines: [], allLines: lines, patternGroups: {}
+    result: 'Unknown', successLine: null, failLines: [], allLines: lines, lineNumbers: lineNumbers, patternGroups: {}
   };
 
   for (const [key, cfg] of Object.entries(CONFIG.clickable_patterns)) {
@@ -450,6 +486,8 @@ function updateProgress(processed, total, found, matched) {
 }
 
 function finishParsing() {
+  isAnalyzing = false;
+  parseInterrupt = false;
   document.getElementById('progressLabel').textContent = '✓ Analysis Complete';
   document.getElementById('progressLabel').style.color = '#34d399';
   document.getElementById('progressDot').style.display = 'none';
@@ -497,28 +535,56 @@ function renderTable() {
   const cols = CONFIG.table_columns;
   const gridCols = cols.map(c => c.width).join(' ');
 
-  // Header
+  // Header with sort indicators
   document.getElementById('tableHead').style.gridTemplateColumns = gridCols;
-  document.getElementById('tableHead').innerHTML = cols.map(c =>
-    `<div class="th" onclick="doSort('${c.key}')">${c.label}<span class="sort-icon">${sortCol === c.key ? (sortDir === 'asc' ? '↑' : '↓') : '<span style="opacity:0.25">⇅</span>'}</span></div>`
+  document.getElementById('tableHead').innerHTML = cols.map(c => {
+    let icon = '<span style="opacity:0.25">⇅</span>';
+    if (sortState[c.key] === 'asc') icon = '↑';
+    else if (sortState[c.key] === 'desc') icon = '↓';
+    return `<div class="th" onclick="cycleSort('${c.key}')" title="Sort by ${c.label}">${c.label}<span class="sort-icon">${icon}</span></div>`;
+  }).join('');
+
+  // Filter row
+  document.getElementById('tableFilters').style.gridTemplateColumns = gridCols;
+  document.getElementById('tableFilters').innerHTML = cols.map(c =>
+    `<div class="filter-cell"><input class="filter-input" placeholder="${c.label}..." data-col="${c.key}" oninput="renderTable()"></div>`
   ).join('');
 
-  // Filter
-  const q = (document.getElementById('searchBox').value || '').toLowerCase();
-  let rows = entries;
-  if (q) rows = rows.filter(e =>
-    (e.conversationId || '').toLowerCase().includes(q) ||
-    (e.requestId || '').toLowerCase().includes(q) ||
-    (e.utterance || '').toLowerCase().includes(q) ||
-    e.result.toLowerCase().includes(q) ||
-    (e.successLine || '').toLowerCase().includes(q)
-  );
+  // Collect column filters from inputs
+  document.querySelectorAll('.filter-input').forEach(inp => {
+    const col = inp.dataset.col;
+    columnFilters[col] = inp.value.toLowerCase();
+  });
 
-  if (sortCol) {
+  // Filter rows: global search + per-column filters
+  const q = (document.getElementById('searchBox').value || '').toLowerCase();
+  let rows = entries.filter(e => {
+    // Global search
+    if (q) {
+      const hasGlobal = (e.conversationId || '').toLowerCase().includes(q) ||
+                       (e.requestId || '').toLowerCase().includes(q) ||
+                       (e.utterance || '').toLowerCase().includes(q) ||
+                       e.result.toLowerCase().includes(q) ||
+                       (e.successLine || '').toLowerCase().includes(q);
+      if (!hasGlobal) return false;
+    }
+    // Per-column filters
+    for (const [col, filter] of Object.entries(columnFilters)) {
+      if (!filter) continue;
+      const val = (e[col] || '').toString().toLowerCase();
+      if (!val.includes(filter)) return false;
+    }
+    return true;
+  });
+
+  // Sort
+  const sortKey = Object.keys(sortState).find(k => sortState[k]);
+  if (sortKey) {
     rows = [...rows].sort((a, b) => {
-      const va = (a[sortCol] || '').toString().toLowerCase();
-      const vb = (b[sortCol] || '').toString().toLowerCase();
-      return sortDir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+      const va = (a[sortKey] || '').toString().toLowerCase();
+      const vb = (b[sortKey] || '').toString().toLowerCase();
+      const cmp = va.localeCompare(vb);
+      return sortState[sortKey] === 'asc' ? cmp : -cmp;
     });
   }
 
@@ -533,11 +599,17 @@ function renderTable() {
     const cells = cols.map(c => {
       const v = e[c.key];
       if (c.type === 'badge') return `<div class="td"><span class="badge badge-${v}">${v}</span></div>`;
-      if (c.type === 'utterance') return `<div class="td"><span class="utt-link">${esc(v)}</span></div>`;
-      if (c.type === 'log' && v) return `<div class="td">${esc(stripTs(v))}</div>`;
+      if (c.type === 'utterance') return `<div class="td"><span class="utt-link" title="Click to detail">${esc(v)}</span></div>`;
+      if (c.type === 'log' && v && e.lineNumbers && e.lineNumbers.length > 0) {
+        const idx = e.allLines.indexOf(v);
+        const lineNum = idx >= 0 ? e.lineNumbers[idx] : '';
+        return `<div class="td" title="Line: ${lineNum}">${esc(stripTs(v))} <span style="color:#64748b;font-size:10px">[L${lineNum}]</span></div>`;
+      }
       if (c.clickable_key) {
         const cp = CONFIG.clickable_patterns[c.clickable_key];
-        if (cp && cp.url_template && v) return `<div class="td"><a class="click-link" href="${cp.url_template.replace('{value}', v)}" target="_blank" onclick="event.stopPropagation()">${esc(v)}</a></div>`;
+        if (cp && cp.url_template && v) {
+          return `<div class="td"><a class="click-link" href="javascript:openURLExternal('${cp.url_template.replace('{value}', v)}')" onclick="event.stopPropagation()">${esc(v)}</a></div>`;
+        }
       }
       return `<div class="td">${esc(v)}</div>`;
     }).join('');
@@ -545,10 +617,24 @@ function renderTable() {
   }).join('');
 }
 
-function doSort(col) {
-  if (sortCol === col) sortDir = sortDir === 'asc' ? 'desc' : 'asc';
-  else { sortCol = col; sortDir = 'asc'; }
+function cycleSort(col) {
+  if (sortState[col] === 'asc') {
+    sortState[col] = 'desc';
+  } else if (sortState[col] === 'desc') {
+    delete sortState[col];
+  } else {
+    sortState = { [col]: 'asc' };
+  }
   renderTable();
+}
+
+// ── External URL ──
+function openURLExternal(url) {
+  if (window.electronAPI && window.electronAPI.openExternal) {
+    window.electronAPI.openExternal(url);
+  } else {
+    window.open(url, '_blank');
+  }
 }
 
 // ── Detail Modal ──

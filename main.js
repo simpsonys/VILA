@@ -150,3 +150,15 @@ ipcMain.handle("read-screenshot", async (event, filePath) => {
     return null;
   }
 });
+
+// IPC: Open URL in external browser
+ipcMain.handle("open-external", async (event, url) => {
+  try {
+    const { shell } = require("electron");
+    await shell.openExternal(url);
+    return true;
+  } catch (e) {
+    console.error("Failed to open URL:", e);
+    return false;
+  }
+});

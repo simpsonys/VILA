@@ -9,4 +9,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   getAppVersion: () => ipcRenderer.invoke("get-version"),
   getScreenshots: (logFilePath) => ipcRenderer.invoke("get-screenshots", logFilePath),
   readScreenshot: (filePath) => ipcRenderer.invoke("read-screenshot", filePath),
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
 });
