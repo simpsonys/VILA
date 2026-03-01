@@ -105,7 +105,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
     <div class="logo">V</div>
     <div>
       <div class="app-title">Voice Interaction Log Analyzer</div>
-      <div class="app-sub">Utterance-level Report</div>
+      <div class="app-sub" id="appSub">Loading...</div>
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
@@ -173,17 +173,36 @@ let sortCol = null;
 let sortDir = 'asc';
 let currentFileName = null;
 let currentEncoding = null;
+let APP_VERSION = '';
+
+// zoom state
+let zoomLevel = 1;
+function applyZoom() {
+  document.body.style.zoom = zoomLevel;
+}
+function changeZoom(delta) {
+  zoomLevel = Math.min(Math.max(0.5, zoomLevel + delta), 3);
+  applyZoom();
+} 
 
 // ── Init: Load config ──
 async function init() {
   if (window.electronAPI) {
     CONFIG = await window.electronAPI.loadConfig();
+    if (window.electronAPI.getAppVersion) {
+      APP_VERSION = await window.electronAPI.getAppVersion();
+      document.getElementById('appSub').textContent = `[${APP_VERSION}] by SimpsonYS`;
+    }
+  }
+  if (!APP_VERSION) {
+    document.getElementById('appSub').textContent = '[dev build] by SimpsonYS';
   }
   if (!CONFIG) {
     CONFIG = getDefaultConfig();
   }
   setupEventListeners();
 }
+
 
 function getDefaultConfig() {
   return {
@@ -229,7 +248,22 @@ function setupEventListeners() {
     if (text && text.length > 10) { e.preventDefault(); processText(text, 'clipboard-paste'); }
   });
 
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+  document.addEventListener('keydown', e => { 
+    if (e.key === 'Escape') closeModal();
+    // zoom shortcuts
+    if (e.ctrlKey) {
+      if (e.key === '+' || e.key === '=' ) { changeZoom(0.1); e.preventDefault(); }
+      else if (e.key === '-') { changeZoom(-0.1); e.preventDefault(); }
+    }
+  });
+
+  // wheel zoom
+  document.addEventListener('wheel', e => {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      changeZoom(e.deltaY < 0 ? 0.1 : -0.1);
+    }
+  }, { passive: false });
 }
 
 // ── File reading ──
@@ -564,6 +598,8 @@ async function doExport() {
 }
 
 function generateReportHtml() {
+  // include app version if available
+  const ver = APP_VERSION ? `[${APP_VERSION}] by SimpsonYS` : '';
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Voice Interaction Log Report</title>
 <style>*{box-sizing:border-box;margin:0;padding:0}body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;padding:20px}
 .hdr{border-bottom:1px solid #1e2433;padding:16px 0 12px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px}
@@ -585,13 +621,13 @@ tr.dr:hover{background:#111625}.badge{display:inline-block;padding:2px 10px;bord
 .mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:24px}
 .mc{background:#161b26;border-radius:8px;padding:12px 16px;border:1px solid #1e2433}.ml{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px}
 .mv{font-size:13px;color:#e2e8f0;font-family:monospace;word-break:break-all}.gn{font-size:11px;color:#a78bfa;font-weight:600;background:#1e1640;display:inline-block;padding:2px 10px;border-radius:4px;margin-bottom:4px}
-.lb{background:#0a0d14;border:1px solid #1e2433;border-radius:6px;padding:10px 14px;max-height:400px;overflow-y:auto;font-family:monospace;font-size:12px;line-height:20px;white-space:pre-wrap;word-break:break-all;color:#94a3b8}
+.lb{background:#0a0d14;border:1px solid #1e2433;border-radius:6px;padding:10px 14px;max-height:400px;overflow-y:auto;font-family:monospace;font-size:12px;line-height:20px;white-space=pre-wrap;word-break=break-all;color:#94a3b8}
 .sb2{background:#0d3b24;border:1px solid #166534;border-radius:6px;padding:8px 12px;font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre-wrap;word-break:break-all}
 .fb{background:#3b0d0d;border:1px solid #7f1d1d;border-radius:6px;padding:8px 12px;font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre-wrap;word-break:break-all}
-.se{margin-bottom:20px}.st{font-size:12px;font-weight:700;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px}
+.se{margin-bottom:20px}.st{font-size=12px;font-weight=700;margin-bottom:6px;text-transform=uppercase;letter-spacing=1px}
 .fp{border:2px dashed #1e2433;border-radius:12px;padding:40px;text-align:center;cursor:pointer;margin-bottom:20px}.fp:hover{border-color:#60dcfa}
 ::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:#0f1117}::-webkit-scrollbar-thumb{background:#2a3040;border-radius:3px}</style></head>
-<body><div class="hdr"><div><div class="title">Voice Interaction Log Report</div><div class="sub" id="fs"></div></div><div class="stats" id="sb"></div></div>
+<body><div class="hdr"><div><div class="title">Voice Interaction Log Report</div><div class="sub" id="fs">${ver}</div></div><div class="stats" id="sb"></div></div>
 <div class="fp" id="fp" onclick="document.getElementById('ji').click()"><p style="color:#94a3b8;font-size:14px;margin-bottom:8px">Click to load the report JSON data file</p>
 <p style="color:#4a5568;font-size:12px">Select the _data.json exported with this HTML</p><input type="file" id="ji" accept=".json" style="display:none" onchange="loadJ(this.files[0])"></div>
 <input class="si" id="si" placeholder="Search all columns..." oninput="rt()" style="display:none">

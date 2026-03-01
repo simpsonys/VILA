@@ -103,3 +103,8 @@ ipcMain.handle("save-export", async (event, { jsonData, htmlData, baseName }) =>
   fs.writeFileSync(htmlPath, htmlData, "utf-8");
   return { jsonPath, htmlPath };
 });
+
+// IPC: Application version (from package.json)
+ipcMain.handle("get-version", () => {
+  return app.getVersion();
+});

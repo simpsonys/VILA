@@ -6,4 +6,5 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openFileDialog: () => ipcRenderer.invoke("open-file-dialog"),
   readFileBuffer: (filePath) => ipcRenderer.invoke("read-file-buffer", filePath),
   saveExport: (data) => ipcRenderer.invoke("save-export", data),
+  getAppVersion: () => ipcRenderer.invoke("get-version"),
 });
