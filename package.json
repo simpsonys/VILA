@@ -1,6 +1,6 @@
 {
   "name": "voice-log-analyzer",
-  "version": "1.0.13",
+  "version": "1.0.14",
   "description": "Voice Interaction Log Analyzer - Utterance-level log analysis report tool",
   "main": "main.js",
   "scripts": {
@@ -40,7 +40,8 @@
     },
     "nsis": {
       "oneClick": true,
-      "allowToChangeInstallationDirectory": false
+      "allowToChangeInstallationDirectory": false,
+      "artifactName": "Voice-Log-Analyzer-Setup-${version}.${ext}"
     },
     "files": [
       "main.js",
