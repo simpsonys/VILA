@@ -637,6 +637,32 @@ function openURLExternal(url) {
   }
 }
 
+// Copy to clipboard
+function copyToClipboard(text) {
+  const decoded = text.replace(/\\n/g, '\n');
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(decoded).then(() => {
+      alert('낵이 클립보드에 복사되었습니다.');
+    }).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = decoded;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      alert('낵이 클립보드에 복사되었습니다.');
+    });
+  } else {
+    const ta = document.createElement('textarea');
+    ta.value = decoded;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    alert('낵이 클립보드에 복사되었습니다.');
+  }
+}
+
 // ── Detail Modal ──
 async function showDetail(idx) {
   const e = filteredData[idx];
@@ -661,7 +687,8 @@ async function showDetail(idx) {
   if (Object.keys(e.patternGroups).length > 0) {
     h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
     for (const [, g] of Object.entries(e.patternGroups)) {
-      h += `<div style="margin-bottom:12px"><div class="grp-name">${esc(g.name)}</div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+      const groupText = g.lines.join('\n');
+      h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
     }
     h += '</div>';
   }
