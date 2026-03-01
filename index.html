@@ -113,9 +113,9 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
     </div>
   </div>
   <div style="display:flex;gap:8px;align-items:center">
-    <button class="config-btn" id="updateBtn" onclick="checkForUpdates()" title="Check for updates">?�� Update</button>
-    <button class="config-btn" id="configBtn" onclick="openConfigFolder()" title="Open config file folder">??Config</button>
-    <button class="btn btn-primary" id="exportBtn" style="display:none" onclick="doExport()">�?Export HTML + JSON</button>
+    <button class="config-btn" id="updateBtn" onclick="checkForUpdates()" title="Check for updates">🔄 Update</button>
+    <button class="config-btn" id="configBtn" onclick="openConfigFolder()" title="Open config file folder">⚙ Config</button>
+    <button class="btn btn-primary" id="exportBtn" style="display:none" onclick="doExport()">⬇ Export HTML + JSON</button>
   </div>
 </div>
 
@@ -124,12 +124,17 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
   <div class="progress-panel" id="progressPanel">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <div style="display:flex;align-items:center;gap:10px">
-        <span id="progressDot" style="color:#60dcfa;animation:pulse 1s infinite;font-size:14px">??/span>
+        <span id="progressDot" style="color:#60dcfa;animation:pulse 1s infinite;font-size:14px">●</span>
         <span id="progressLabel" style="font-size:13px;font-weight:600;color:#60dcfa">Analyzing...</span>
         <span id="progressFile" style="font-size:11px;color:#4a5568"></span>
         <span class="enc-tag" id="progressEnc" style="display:none"></span>
       </div>
-      <div style="display:flex;align-items:center;gap:12px"><span id="progressCount" style="font-size:12px;color:#64748b;font-family:'Consolas',monospace"></span><div id="miniDropZone" style="display:none;border:2px dashed #1e2433;border-radius:8px;padding:8px 16px;cursor:pointer;background:#0b0e15;transition:all 0.2s" onclick="openFile()" title="Click to load another file"><span style="font-size:11px;color:#94a3b8"> Load New File</span></div></div>
+      <div style="display:flex;align-items:center;gap:12px">
+        <span id="progressCount" style="font-size:12px;color:#64748b;font-family:'Consolas',monospace"></span>
+        <div id="miniDropZone" style="display:none;border:2px dashed #1e2433;border-radius:8px;padding:8px 16px;cursor:pointer;background:#0b0e15;transition:all 0.2s" onclick="openFile()" title="Click to load another file">
+          <span style="font-size:11px;color:#94a3b8">📄 Load New File</span>
+        </div>
+      </div>
     </div>
     <div class="progress-bar-track">
       <div class="progress-bar-fill" id="progressBar" style="width:0%;background:linear-gradient(90deg,#60dcfa,#a78bfa)"></div>
@@ -142,10 +147,10 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
 
   <!-- Drop Zone -->
   <div class="dropzone" id="dropzone">
-    <div class="dropzone-icon">?��</div>
+    <div class="dropzone-icon">📄</div>
     <div class="dropzone-title">Drop log file here, or click to browse</div>
     <div class="dropzone-sub">Auto encoding detection (UTF-8, EUC-KR, UTF-16) · <kbd>Ctrl+V</kbd> to paste</div>
-    <button class="btn-paste" onclick="event.stopPropagation();doPaste()">?�� Paste from Clipboard</button>
+    <button class="btn-paste" onclick="event.stopPropagation();doPaste()">📋 Paste from Clipboard</button>
   </div>
 
   <!-- Results area (hidden initially) -->
@@ -154,7 +159,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
       <div class="stats-bar" id="statsBar"></div>
       <div style="display:flex;gap:8px;align-items:center">
         <input class="search-input" id="searchBox" placeholder="Search all columns..." oninput="renderTable()">
-        
+                <!-- New File button removed - use mini drop zone in progress panel instead -->
       </div>
     </div>
     <div class="table-wrap">
@@ -178,7 +183,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
       <span id="zoomLevel" style="color:#94a3b8;font-size:12px;min-width:60px;text-align:center">100%</span>
       <button class="btn btn-ghost" onclick="changeScreenshotZoom(0.1)" title="Zoom In">+</button>
       <button class="btn btn-ghost" onclick="resetScreenshotZoom()" title="Reset">100%</button>
-      <button style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer" onclick="closeScreenshotViewer()">??/button>
+      <button style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer" onclick="closeScreenshotViewer()">✕</button>
     </div>
     <img id="screenshotImage" src="" alt="Screenshot" style="max-width:100%;max-height:100%;transform-origin:center;transition:transform 0.1s" onclick="event.stopPropagation()">
   </div>
@@ -189,13 +194,13 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
   <div class="modal-body" onclick="event.stopPropagation()" style="max-width:500px">
     <div class="modal-hdr">
       <h2 style="margin:0;font-size:16px;font-weight:600;">Update Status</h2>
-      <button class="modal-close" onclick="closeUpdateModal()">??/button>
+      <button class="modal-close" onclick="closeUpdateModal()">✕</button>
     </div>
     <div style="padding:28px;display:flex;flex-direction:column;gap:16px">
       <div id="updateContent">
         <div style="text-align:center;padding:40px 20px">
           <div style="font-size:14px;color:#94a3b8">Checking for updates...</div>
-          <div style="margin-top:16px;animation:pulse 1s infinite">??/div>
+          <div style="margin-top:16px;animation:pulse 1s infinite">⏳</div>
         </div>
       </div>
       <div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #1e2433;padding-top:16px;margin-top:16px">
@@ -207,7 +212,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
 </div>
 
 <script>
-// ?�?� State ?�?�
+// ── State ──
 let CONFIG = null;
 let entries = [];
 let filteredData = [];
@@ -247,7 +252,7 @@ function initColumnFilters() {
   }
 } 
 
-// ?�?� Init: Load config ?�?�
+// ── Init: Load config ──
 async function init() {
   if (window.electronAPI) {
     CONFIG = await window.electronAPI.loadConfig();
@@ -384,13 +389,13 @@ function setupEventListeners() {
   }
 }
 
-// ?�?� File reading ?�?�
+// ── File reading ──
 async function openFile() {
   if (window.electronAPI) {
     const filePath = await window.electronAPI.openFileDialog();
     if (filePath) {
       if (isAnalyzing) {
-        const shouldContinue = confirm('?�쥠: ?�일 분석??진행 중입?�다. 취소?�고 ???�일??분석?�시겠습?�까?');
+        const shouldContinue = confirm('동쥠: 파일 분석이 진행 중입니다. 취소하고 새 파일을 분석하시겠습니까?');
         if (!shouldContinue) return;
         parseInterrupt = true;
       }
@@ -422,7 +427,7 @@ async function doPaste() {
   } catch { alert('Clipboard access denied. Use Ctrl+V.'); }
 }
 
-// ?�?� Encoding detection ?�?�
+// ── Encoding detection ──
 function detectEncoding(buffer) {
   const b = new Uint8Array(buffer);
   if (b[0]===0xEF&&b[1]===0xBB&&b[2]===0xBF) return 'utf-8';
@@ -440,13 +445,13 @@ function detectEncoding(buffer) {
   return ok ? 'utf-8' : 'euc-kr';
 }
 
-// ?�?� Timestamp stripping ?�?�
+// ── Timestamp stripping ──
 function stripTs(line) {
   const m = line.match(/[A-Z]\/[\w]+\s*\(\s*\d+\)\s*:/);
   return m ? line.substring(m.index) : line;
 }
 
-// ?�?� Process ?�?�
+// ── Process ──
 function processBuffer(buffer, name) {
   const enc = detectEncoding(buffer);
   const text = new TextDecoder(enc).decode(buffer);
@@ -542,7 +547,7 @@ function parseBlock(lines, lineNumbers = []) {
   return e;
 }
 
-// ?�?� UI Updates ?�?�
+// ── UI Updates ──
 function showProgress(name, enc) {
   document.getElementById('dropzone').style.display = 'none';
   document.getElementById('resultsArea').style.display = '';
@@ -569,11 +574,11 @@ function updateProgress(processed, total, found, matched) {
 function finishParsing() {
   isAnalyzing = false;
   parseInterrupt = false;
-  document.getElementById('progressLabel').textContent = '??Analysis Complete';
+  document.getElementById('progressLabel').textContent = '✓ Analysis Complete';
   document.getElementById('progressLabel').style.color = '#34d399';
   document.getElementById('progressDot').style.display = 'none';
   document.getElementById('progressBar').style.background = '#34d399';
-  document.getElementById('miniDropZone').style.display = '';
+  document.getElementById('miniDropZone').style.display = ''; // Show mini drop zone
   renderTable();
 }
 
@@ -620,9 +625,9 @@ function renderTable() {
   // Header with sort indicators
   document.getElementById('tableHead').style.gridTemplateColumns = gridCols;
   document.getElementById('tableHead').innerHTML = cols.map(c => {
-    let icon = '<span style="opacity:0.25">??/span>';
-    if (sortState[c.key] === 'asc') icon = '??;
-    else if (sortState[c.key] === 'desc') icon = '??;
+    let icon = '<span style="opacity:0.25">⇅</span>';
+    if (sortState[c.key] === 'asc') icon = '↑';
+    else if (sortState[c.key] === 'desc') icon = '↓';
     return `<div class="th" onclick="cycleSort('${c.key}')" title="Sort by ${c.label}">${c.label}<span class="sort-icon">${icon}</span></div>`;
   }).join('');
 
@@ -710,7 +715,7 @@ function cycleSort(col) {
   renderTable();
 }
 
-// ?�?� External URL ?�?�
+// ── External URL ──
 function openURLExternal(url) {
   if (window.electronAPI && window.electronAPI.openExternal) {
     window.electronAPI.openExternal(url);
@@ -724,7 +729,7 @@ function copyToClipboard(text) {
   const decoded = text.replace(/\\n/g, '\n');
   if (navigator.clipboard) {
     navigator.clipboard.writeText(decoded).then(() => {
-      alert('?�이 ?�립보드??복사?�었?�니??');
+      alert('낵이 클립보드에 복사되었습니다.');
     }).catch(() => {
       const ta = document.createElement('textarea');
       ta.value = decoded;
@@ -732,7 +737,7 @@ function copyToClipboard(text) {
       ta.select();
       document.execCommand('copy');
       document.body.removeChild(ta);
-      alert('?�이 ?�립보드??복사?�었?�니??');
+      alert('낵이 클립보드에 복사되었습니다.');
     });
   } else {
     const ta = document.createElement('textarea');
@@ -741,11 +746,11 @@ function copyToClipboard(text) {
     ta.select();
     document.execCommand('copy');
     document.body.removeChild(ta);
-    alert('?�이 ?�립보드??복사?�었?�니??');
+    alert('낵이 클립보드에 복사되었습니다.');
   }
 }
 
-// ?�?� Detail Window Handler ?�?�
+// ── Detail Window Handler ──
 async function openDetailFromTable(idx) {
   const e = filteredData[idx];
   if (!e) return;
@@ -797,14 +802,14 @@ async function displayDetailWindow(data) {
   });
   h += '</div>';
 
-  if (e.successLine) h += `<div class="section"><div class="sec-title" style="color:#34d399">??Success Match</div><div class="succ-box">${makeClickable(stripTs(e.successLine))}</div></div>`;
-  if (e.failLines.length > 0) h += `<div class="section"><div class="sec-title" style="color:#f87171">??Failure Matches</div><div class="fail-box">${e.failLines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+  if (e.successLine) h += `<div class="section"><div class="sec-title" style="color:#34d399">✓ Success Match</div><div class="succ-box">${makeClickable(stripTs(e.successLine))}</div></div>`;
+  if (e.failLines.length > 0) h += `<div class="section"><div class="sec-title" style="color:#f87171">✗ Failure Matches</div><div class="fail-box">${e.failLines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
 
   if (Object.keys(e.patternGroups).length > 0) {
     h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
     for (const [, g] of Object.entries(e.patternGroups)) {
       const groupText = g.lines.join('\n');
-      h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Copy">?�� Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+      h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
     }
     h += '</div>';
   }
@@ -813,9 +818,9 @@ async function displayDetailWindow(data) {
   if (window.electronAPI && currentFilePath) {
     const screenshots = await window.electronAPI.getScreenshots(currentFilePath);
     if (screenshots && screenshots.length > 0) {
-      h += '<div class="section"><div class="sec-title" style="color:#a78bfa">?�� Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin-top:8px">';
+      h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin-top:8px">';
       screenshots.forEach((ss, i) => {
-        h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:border 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}"><span style="font-size:24px;opacity:0.5">?��</span></div>`;
+        h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:border 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}"><span style="font-size:24px;opacity:0.5">🖼</span></div>`;
       });
       h += '</div></div>';
     }
@@ -835,32 +840,32 @@ async function displayDetailWindow(data) {
   detailContainer.innerHTML = h;
 }
 
-// ?�?� Detail Modal ?�?�
+// ── Detail Modal ──
 async function showDetail(idx) {
   const e = filteredData[idx];
   if (!e) return;
 
-  let h = `<div class="modal-hdr"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><button class="modal-close" onclick="closeModal()">??/button></div>`;
+  let h = `<div class="modal-hdr"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><button class="modal-close" onclick="closeModal()">✕</button></div>`;
   h += '<div class="modal-content"><div class="meta-grid">';
 
   [{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Utterance',v:e.utterance},{l:'Result',v:e.result,b:1}].forEach(m => {
     h += `<div class="meta-card"><div class="meta-label">${m.l}</div>`;
     if (m.b) h += `<span class="badge badge-${m.v}">${m.v}</span>`;
     else if (m.ck && CONFIG.clickable_patterns[m.ck] && CONFIG.clickable_patterns[m.ck].url_template && m.v)
-      h += `<a href="${CONFIG.clickable_patterns[m.ck].url_template.replace('{value}', m.v)}" class="click-link" style="font-size:13px;font-family:Consolas,monospace;word-break:break-all" onclick="openURLExternal(this.getAttribute('data-url'));event.stopPropagation();return false" data-url="${CONFIG.clickable_patterns[m.ck].url_template.replace('{value}', m.v)}" href="javascript:void(0)">${esc(m.v)}</a>`;
+      h += `<a href="javascript:void(0)" onclick="openURLExternal('${CONFIG.clickable_patterns[m.ck].url_template.replace('{value}', m.v)}');event.stopPropagation();return false" class="click-link" style="font-size:13px;font-family:Consolas,monospace;word-break:break-all">${esc(m.v)}</a>`;
     else h += `<div class="meta-val">${esc(m.v)}</div>`;
     h += '</div>';
   });
   h += '</div>';
 
-  if (e.successLine) h += `<div class="section"><div class="sec-title" style="color:#34d399">??Success Match</div><div class="succ-box">${makeClickable(stripTs(e.successLine))}</div></div>`;
-  if (e.failLines.length > 0) h += `<div class="section"><div class="sec-title" style="color:#f87171">??Failure Matches</div><div class="fail-box">${e.failLines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+  if (e.successLine) h += `<div class="section"><div class="sec-title" style="color:#34d399">✓ Success Match</div><div class="succ-box">${makeClickable(stripTs(e.successLine))}</div></div>`;
+  if (e.failLines.length > 0) h += `<div class="section"><div class="sec-title" style="color:#f87171">✗ Failure Matches</div><div class="fail-box">${e.failLines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
 
   if (Object.keys(e.patternGroups).length > 0) {
     h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
     for (const [, g] of Object.entries(e.patternGroups)) {
       const groupText = g.lines.join('\n');
-      h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Copy">?�� Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+      h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
     }
     h += '</div>';
   }
@@ -869,9 +874,9 @@ async function showDetail(idx) {
   if (window.electronAPI && currentFilePath) {
     const screenshots = await window.electronAPI.getScreenshots(currentFilePath);
     if (screenshots && screenshots.length > 0) {
-      h += '<div class="section"><div class="sec-title" style="color:#a78bfa">?�� Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin-top:8px">';
+      h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin-top:8px">';
       screenshots.forEach((ss, i) => {
-        h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:border 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}"><span style="font-size:24px;opacity:0.5">?��</span></div>`;
+        h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:border 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}"><span style="font-size:24px;opacity:0.5">🖼</span></div>`;
       });
       h += '</div></div>';
     }
@@ -885,7 +890,7 @@ async function showDetail(idx) {
 
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
 
-// ?�?� Screenshot Viewer ?�?�
+// ── Screenshot Viewer ──
 async function showScreenshotViewer(filePath) {
   if (!window.electronAPI) return;
   const base64 = await window.electronAPI.readScreenshot(filePath);
@@ -924,7 +929,7 @@ function screenshotWheel(e) {
   }
 }
 
-// ?�?� Export ?�?�
+// ── Export ──
 async function doExport() {
   const st = { total: entries.length, success: entries.filter(e=>e.result==='SUCCESS').length, fail: entries.filter(e=>e.result==='FAIL').length, partial: entries.filter(e=>e.result==='PARTIAL').length, unknown: entries.filter(e=>e.result==='Unknown').length };
   st.passRate = (st.success+st.fail)>0?((st.success/(st.success+st.fail))*100).toFixed(1):'-';
@@ -932,7 +937,14 @@ async function doExport() {
     successLine:e.successLine?stripTs(e.successLine):null,failLines:e.failLines.map(stripTs),allLines:e.allLines.map(stripTs),
     patternGroups:Object.fromEntries(Object.entries(e.patternGroups).map(([k,v])=>[k,{name:v.name,lines:v.lines.map(stripTs)}]))}));
   const jsonStr = JSON.stringify({config:{table_columns:CONFIG.table_columns,clickable_patterns:CONFIG.clickable_patterns},stats:st,entries:data});
-  const baseName = (currentFileName||'report').replace(/\.[^.]+$/,'');
+  let baseName = (currentFileName||'report').replace(/\.[^.]+$/,'');
+  // Add timestamp for clipboard exports
+  if (currentFileName === 'clipboard-paste') {
+    const now = new Date();
+    const timestamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}_${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+    baseName = `${timestamp}_Clipboard`;
+  }
+
 
   const reportHtml = generateReportHtml();
 
@@ -999,13 +1011,13 @@ document.getElementById('tb').innerHTML=rows.map((e,i)=>'<tr class="dr" style="c
 if(c.type==='badge')return'<td><span class="badge badge-'+v+'">'+v+'</span></td>';if(c.type==='utterance')return'<td><span class="utt">'+esc2(v)+'</span></td>';
 if(c.clickable_key&&C.clickable_patterns[c.clickable_key]){const cp=C.clickable_patterns[c.clickable_key];if(cp.url_template&&v!=='N/A')return'<td><a class="cl" href="'+cp.url_template.replace('{value}',v)+'" target="_blank" onclick="event.stopPropagation()">'+esc2(v)+'</a></td>'}
 if(c.type==='log')return'<td>'+mkC(v)+'</td>';return'<td>'+esc2(v)+'</td>'}).join('')+'</tr>').join('')}
-function sd3(i){const e=fD2[i];if(!e)return;let h='<div class="mh"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">'+esc2(e.utterance)+'</div></div><button class="cb" onclick="cm()">??/button></div><div style="padding:20px 28px"><div class="mg">';
+function sd3(i){const e=fD2[i];if(!e)return;let h='<div class="mh"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">'+esc2(e.utterance)+'</div></div><button class="cb" onclick="cm()">✕</button></div><div style="padding:20px 28px"><div class="mg">';
 [{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Utterance',v:e.utterance},{l:'Result',v:e.result,b:1}].forEach(m=>{
 h+='<div class="mc"><div class="ml">'+m.l+'</div>';if(m.b)h+='<span class="badge badge-'+m.v+'">'+m.v+'</span>';
 else if(m.ck&&C.clickable_patterns[m.ck]&&C.clickable_patterns[m.ck].url_template&&m.v)h+='<a href="'+C.clickable_patterns[m.ck].url_template.replace('{value}',m.v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline;font-size:13px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';
 else h+='<div class="mv">'+esc2(m.v)+'</div>';h+='</div>'});h+='</div>';
-if(e.successLine)h+='<div class="se"><div class="st" style="color:#34d399">??Success Match</div><div class="sb2">'+mkC(e.successLine)+'</div></div>';
-if(e.failLines&&e.failLines.length)h+='<div class="se"><div class="st" style="color:#f87171">??Failure Matches</div><div class="fb">'+e.failLines.map(l=>mkC(l)).join('<br>')+'</div></div>';
+if(e.successLine)h+='<div class="se"><div class="st" style="color:#34d399">✓ Success Match</div><div class="sb2">'+mkC(e.successLine)+'</div></div>';
+if(e.failLines&&e.failLines.length)h+='<div class="se"><div class="st" style="color:#f87171">✗ Failure Matches</div><div class="fb">'+e.failLines.map(l=>mkC(l)).join('<br>')+'</div></div>';
 if(e.patternGroups&&Object.keys(e.patternGroups).length){h+='<div class="se"><div class="st" style="color:#60dcfa">Pattern Groups</div>';for(const[,g]of Object.entries(e.patternGroups))h+='<div style="margin-bottom:12px"><div class="gn">'+esc2(g.name)+'</div><div class="lb" style="max-height:200px">'+g.lines.map(l=>mkC(l)).join('<br>')+'</div></div>';h+='</div>'}
 h+='<div class="se"><div class="st" style="color:#94a3b8">All Valid Logs ('+e.allLines.length+' lines)</div><div class="lb">'+e.allLines.map((l,i)=>'<span style="color:#334155;min-width:30px;display:inline-block;text-align:right;margin-right:10px;user-select:none">'+(i+1)+'</span>'+mkC(l)).join('<br>')+'</div></div></div>';
 document.getElementById('mc2').innerHTML=h;document.getElementById('md').classList.add('op')}
@@ -1014,7 +1026,7 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')cm()});
 <\/script></body></html>`;
 }
 
-// ?�?� Reset ?�?�
+// ── Reset ──
 function resetApp() {
   entries = [];
   filteredData = [];
@@ -1026,11 +1038,12 @@ function resetApp() {
   document.getElementById('resultsArea').style.display = 'none';
   document.getElementById('exportBtn').style.display = 'none';
   document.getElementById('progressPanel').classList.remove('show');
-  document.getElementById('miniDropZone').style.display = 'none';
+  document.getElementById('miniDropZone').style.display = 'none'; // Hide mini drop zone
 }
 
 
-// ?�?� Update ?�?�
+
+// ── Update ──
 let updateState = null;
 
 async function checkForUpdates() {
@@ -1060,11 +1073,11 @@ function showUpdateModal(message, state) {
   if (state === 'checking') {
     html = `<div style="text-align:center;padding:40px 20px">
       <div style="font-size:14px;color:#94a3b8">Checking for updates...</div>
-      <div style="margin-top:16px;animation:pulse 1s infinite">??/div>
+      <div style="margin-top:16px;animation:pulse 1s infinite">⏳</div>
     </div>`;
   } else if (state === 'uptodate') {
     html = `<div style="text-align:center;padding:40px 20px">
-      <div style="font-size:18px;margin-bottom:8px">??/div>
+      <div style="font-size:18px;margin-bottom:8px">✓</div>
       <div style="font-size:14px;color:#94a3b8">${message}</div>
     </div>`;
   } else if (state === 'downloading') {
@@ -1074,13 +1087,13 @@ function showUpdateModal(message, state) {
     </div>`;
   } else if (state === 'ready') {
     html = `<div style="text-align:center;padding:40px 20px">
-      <div style="font-size:18px;margin-bottom:8px">?��</div>
+      <div style="font-size:18px;margin-bottom:8px">🎉</div>
       <div style="font-size:14px;color:#94a3b8">${message}</div>
     </div>`;
     actionBtn.style.display = 'block';
   } else if (state === 'error') {
     html = `<div style="text-align:center;padding:40px 20px">
-      <div style="font-size:18px;margin-bottom:8px">?�️</div>
+      <div style="font-size:18px;margin-bottom:8px">⚠️</div>
       <div style="font-size:14px;color:#f87171">${message}</div>
     </div>`;
   }
