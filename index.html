@@ -703,10 +703,25 @@ function parseBlock(lines, lineNumbers = []) {
       }
     }
   }
+
+  // Extract pattern groups
+  for (const [gK, gC] of Object.entries(CONFIG.pattern_groups || {})) {
     const ml = [];
-    for (const l of lines) for (const p of gC.patterns) { try { if (new RegExp(p).test(l)) { ml.push(l); break; } } catch {} }
-    if (ml.length > 0) { e.patternGroups[gK] = { name: gC.name, lines: ml }; e[gK] = ml[0]; }
+    for (const l of lines) {
+      for (const p of gC.patterns) {
+        try {
+          if (new RegExp(p).test(l)) {
+            ml.push(l);
+            break;
+          }
+        } catch {}
+      }
+    }
+    if (ml.length > 0) {
+      e.patternGroups[gK] = { name: gC.name, lines: ml };
+    }
   }
+
   return e;
 }
 
