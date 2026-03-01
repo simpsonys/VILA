@@ -1,19 +1,23 @@
 {
   "name": "voice-log-analyzer",
-  "version": "1.0.19",
+  "version": "1.0.20",
   "description": "Voice Interaction Log Analyzer - Utterance-level log analysis report tool",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
     "prebuild": "node scripts/update-build-time.js",
     "build": "npm run prebuild && electron-builder --win",
-    "build:portable": "npm run prebuild && electron-builder --win portable"
+    "build:portable": "npm run prebuild && electron-builder --win portable",
+    "test": "jest"
   },
   "author": "VD Division",
   "license": "MIT",
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "electron": "^33.0.0",
-    "electron-builder": "^25.1.0"
+    "electron-builder": "^25.1.0",
+    "fast-check": "^4.5.3",
+    "jest": "^30.2.0"
   },
   "dependencies": {
     "electron-updater": "^6.8.3",
