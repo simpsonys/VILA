@@ -104,7 +104,49 @@ ipcMain.handle("save-export", async (event, { jsonData, htmlData, baseName }) =>
   return { jsonPath, htmlPath };
 });
 
-// IPC: Application version (from package.json)
+// IPC: Application version (from package.json + build timestamp)
 ipcMain.handle("get-version", () => {
-  return app.getVersion();
+  const baseVersion = app.getVersion();
+  const buildTimePath = path.join(__dirname, "build-time.json");
+  try {
+    if (fs.existsSync(buildTimePath)) {
+      const buildData = JSON.parse(fs.readFileSync(buildTimePath, "utf-8"));
+      return `${baseVersion}-${buildData.buildTime}`;
+    }
+  } catch (e) {
+    console.error("Failed to read build time:", e);
+  }
+  return baseVersion;
+});
+
+// IPC: Get screenshots from log file directory
+ipcMain.handle("get-screenshots", async (event, logFilePath) => {
+  if (!logFilePath) return [];
+  try {
+    const dirPath = path.dirname(logFilePath);
+    const screenshotDir = path.join(dirPath, "screenshot");
+    if (!fs.existsSync(screenshotDir)) return [];
+    
+    const files = fs.readdirSync(screenshotDir);
+    const utteranceFiles = files.filter(f => /^발화_\d+\.png$/i.test(f)).sort();
+    
+    return utteranceFiles.map(f => ({
+      name: f,
+      path: path.join(screenshotDir, f)
+    }));
+  } catch (e) {
+    console.error("Failed to get screenshots:", e);
+    return [];
+  }
+});
+
+// IPC: Read screenshot as base64
+ipcMain.handle("read-screenshot", async (event, filePath) => {
+  try {
+    const buffer = fs.readFileSync(filePath);
+    return buffer.toString("base64");
+  } catch (e) {
+    console.error("Failed to read screenshot:", e);
+    return null;
+  }
 });

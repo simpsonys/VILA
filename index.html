@@ -164,6 +164,20 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
   <div class="modal-body" onclick="event.stopPropagation()" id="modalContent"></div>
 </div>
 
+<!-- Screenshot Viewer Modal -->
+<div class="modal-overlay" id="screenshotViewer" onclick="closeScreenshotViewer()" style="background:rgba(0,0,0,0.9);padding:0" onwheel="screenshotWheel(event)">
+  <div style="position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px">
+    <div style="position:absolute;top:10px;right:10px;z-index:1001;display:flex;gap:8px">
+      <button class="btn btn-ghost" onclick="changeScreenshotZoom(-0.1)" title="Zoom Out">-</button>
+      <span id="zoomLevel" style="color:#94a3b8;font-size:12px;min-width:60px;text-align:center">100%</span>
+      <button class="btn btn-ghost" onclick="changeScreenshotZoom(0.1)" title="Zoom In">+</button>
+      <button class="btn btn-ghost" onclick="resetScreenshotZoom()" title="Reset">100%</button>
+      <button style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer" onclick="closeScreenshotViewer()">✕</button>
+    </div>
+    <img id="screenshotImage" src="" alt="Screenshot" style="max-width:100%;max-height:100%;transform-origin:center;transition:transform 0.1s" onclick="event.stopPropagation()">
+  </div>
+</div>
+
 <script>
 // ── State ──
 let CONFIG = null;
@@ -172,8 +186,10 @@ let filteredData = [];
 let sortCol = null;
 let sortDir = 'asc';
 let currentFileName = null;
+let currentFilePath = null;
 let currentEncoding = null;
 let APP_VERSION = '';
+let screenshotViewerScale = 1;
 
 // zoom state
 let zoomLevel = 1;
@@ -272,8 +288,7 @@ async function openFile() {
     const filePath = await window.electronAPI.openFileDialog();
     if (filePath) {
       const buffer = await window.electronAPI.readFileBuffer(filePath);
-      const name = filePath.split(/[\\/]/).pop();
-      processBuffer(new Uint8Array(buffer).buffer, name);
+      const name = filePath.split(/[\\/]/).pop();      currentFilePath = filePath;      processBuffer(new Uint8Array(buffer).buffer, name);
     }
   } else {
     const input = document.createElement('input');
@@ -537,7 +552,7 @@ function doSort(col) {
 }
 
 // ── Detail Modal ──
-function showDetail(idx) {
+async function showDetail(idx) {
   const e = filteredData[idx];
   if (!e) return;
 
@@ -565,6 +580,18 @@ function showDetail(idx) {
     h += '</div>';
   }
 
+  // Load screenshots
+  if (window.electronAPI && currentFilePath) {
+    const screenshots = await window.electronAPI.getScreenshots(currentFilePath);
+    if (screenshots && screenshots.length > 0) {
+      h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin-top:8px">';
+      screenshots.forEach((ss, i) => {
+        h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:border 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}"><span style="font-size:24px;opacity:0.5">🖼</span></div>`;
+      });
+      h += '</div></div>';
+    }
+  }
+
   h += `<div class="section"><div class="sec-title" style="color:#94a3b8">All Valid Logs (${e.allLines.length} lines)</div><div class="log-box">${e.allLines.map((l, i) => `<span style="color:#334155;min-width:30px;display:inline-block;text-align:right;margin-right:10px;user-select:none">${i+1}</span>${makeClickable(stripTs(l))}`).join('<br>')}</div></div></div>`;
 
   document.getElementById('modalContent').innerHTML = h;
@@ -572,6 +599,45 @@ function showDetail(idx) {
 }
 
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+// ── Screenshot Viewer ──
+async function showScreenshotViewer(filePath) {
+  if (!window.electronAPI) return;
+  const base64 = await window.electronAPI.readScreenshot(filePath);
+  if (!base64) { alert('Failed to load screenshot'); return; }
+  screenshotViewerScale = 1;
+  document.getElementById('screenshotImage').src = `data:image/png;base64,${base64}`;
+  document.getElementById('screenshotImage').style.transform = 'scale(1)';
+  document.getElementById('zoomLevel').textContent = '100%';
+  document.getElementById('screenshotViewer').classList.add('open');
+}
+
+function closeScreenshotViewer() {
+  document.getElementById('screenshotViewer').classList.remove('open');
+}
+
+function changeScreenshotZoom(delta) {
+  screenshotViewerScale = Math.min(Math.max(0.2, screenshotViewerScale + delta), 3);
+  updateScreenshotZoom();
+}
+
+function resetScreenshotZoom() {
+  screenshotViewerScale = 1;
+  updateScreenshotZoom();
+}
+
+function updateScreenshotZoom() {
+  const img = document.getElementById('screenshotImage');
+  img.style.transform = `scale(${screenshotViewerScale})`;
+  document.getElementById('zoomLevel').textContent = Math.round(screenshotViewerScale * 100) + '%';
+}
+
+function screenshotWheel(e) {
+  if (e.ctrlKey) {
+    e.preventDefault();
+    changeScreenshotZoom(e.deltaY < 0 ? 0.1 : -0.1);
+  }
+}
 
 // ── Export ──
 async function doExport() {
@@ -668,7 +734,9 @@ function resetApp() {
   entries = [];
   filteredData = [];
   sortCol = null; sortDir = 'asc';
-  currentFileName = null; currentEncoding = null;
+  currentFileName = null;
+  currentFilePath = null;
+  currentEncoding = null;
   document.getElementById('dropzone').style.display = '';
   document.getElementById('resultsArea').style.display = 'none';
   document.getElementById('exportBtn').style.display = 'none';
