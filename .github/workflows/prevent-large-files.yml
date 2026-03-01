@@ -1,0 +1,29 @@
+name: Prevent Committing Large Files
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check_large_files:
+    name: Scan repository for files > 50MB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Scan for large files
+        run: |
+          echo "Scanning repository for files larger than 50MB..."
+          # Exclude git internals and .github/workflows since workflows may contain templates
+          LARGE_FILES=$(find . -type f -not -path './.git/*' -not -path './.github/*' -size +50M -printf '%s\t%p\n' | sort -nr)
+          if [ -n "$LARGE_FILES" ]; then
+            echo "Found files larger than 50MB:" >&2
+            echo "$LARGE_FILES" >&2
+            echo "\nPlease remove large files from commits or use Git LFS. Failing the check." >&2
+            exit 1
+          fi
+          echo "No files > 50MB found."
