@@ -73,24 +73,26 @@ function getConfigFolderPath() {
   return app.getPath("userData");
 }
 
+// main.js 의 createWindow 함수와 ensureDefaultPresets 부분을 아래처럼 확인/수정해주세요.
+
 function ensureDefaultPresets() {
   const folder = getConfigFolderPath();
+  if (!fs.existsSync(folder)) {
+    fs.mkdirSync(folder, { recursive: true });
+  }
+
   const p0Path = path.join(folder, "Preset0_CmdMyBixby_pattern_config.json");
   const p1Path = path.join(folder, "Preset1_kAsr2Response_pattern_config.json");
 
-  // Check if ANY Preset file exists. If not, create defaults.
+  // 파일 목록 확인
   const files = fs.readdirSync(folder);
+  // Preset으로 시작하는 json 파일이 하나도 없으면 기본 파일 생성
   const hasPreset = files.some(f => f.startsWith("Preset") && f.endsWith(".json"));
 
   if (!hasPreset) {
-    if (!fs.existsSync(p0Path)) {
-      fs.writeFileSync(p0Path, JSON.stringify(DEFAULT_PRESET_0, null, 2));
-      console.log("Created default Preset0");
-    }
-    if (!fs.existsSync(p1Path)) {
-      fs.writeFileSync(p1Path, JSON.stringify(DEFAULT_PRESET_1, null, 2));
-      console.log("Created default Preset1");
-    }
+    console.log("No presets found. Creating defaults...");
+    fs.writeFileSync(p0Path, JSON.stringify(DEFAULT_PRESET_0, null, 2));
+    fs.writeFileSync(p1Path, JSON.stringify(DEFAULT_PRESET_1, null, 2));
   }
 }
 
@@ -107,10 +109,13 @@ function createWindow() {
   });
 
   win.setMenuBarVisibility(false);
-  // DevTools disabled as requested
-  // win.webContents.openDevTools({ mode: 'detach' }); 
+  
+  // [수정 1] 디버깅을 위해 DevTools를 다시 켭니다. (문제가 해결되면 주석 처리하세요)
+  win.webContents.openDevTools({ mode: 'detach' }); 
+  
   win.loadFile("index.html");
 }
+
 
 // --- IPC Handlers ---
 
