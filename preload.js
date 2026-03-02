@@ -2,6 +2,8 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   loadConfig: () => ipcRenderer.invoke("load-config"),
+  listPresets: () => ipcRenderer.invoke('list-presets'), // New
+  loadSpecificConfig: (fileName) => ipcRenderer.invoke('load-specific-config', fileName), // New
   openConfigFolder: () => ipcRenderer.invoke("open-config-folder"),
   openFileDialog: () => ipcRenderer.invoke("open-file-dialog"),
   readFileBuffer: (filePath) => ipcRenderer.invoke("read-file-buffer", filePath),
