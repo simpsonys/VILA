@@ -124,22 +124,40 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
 .error-toast-stack.show { display: block; }
 .error-toast-toggle { background: none; border: none; color: #64748b; font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0; margin-top: 6px; }
 .error-toast-toggle:hover { color: #f87171; }
+  /* --- 여기에 붙여넣으세요 --- */
+
+/* Preset Bar Styles */
+.preset-bar { display: flex; align-items: center; gap: 15px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #1e2433; width: 100%; }
+.preset-label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+.radio-group { display: flex; align-items: center; gap: 12px; }
+.radio-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #94a3b8; cursor: pointer; user-select: none; }
+.radio-item:hover { color: #e2e8f0; }
+.radio-item input { accent-color: #60dcfa; cursor: pointer; }
+  
 </style>
 </head>
 <body>
 
 <!-- Header -->
-<div class="header">
-  <div style="display:flex;align-items:center;gap:12px">
-    <div class="logo">V</div>
-    <div>
-      <div class="app-title">Voice Interaction Log Analyzer</div>
-      <div class="app-sub" id="appSub">Loading...</div>
+<div class="header" id="mainHeader">
+  <div style="display:flex;flex-direction:column;gap:5px">
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="logo">V</div>
+      <div>
+        <div class="app-title">Voice Interaction Log Analyzer</div>
+        <div class="app-sub" id="appSub">Loading...</div>
+      </div>
+    </div>
+    
+    <div class="preset-bar" id="presetBar" style="display:flex;align-items:center;gap:15px;margin-top:5px;padding-top:5px;border-top:1px solid #1e2433;width:100%">
+      <span class="preset-label" style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase">Preset:</span>
+      <div class="radio-group" id="presetRadios" style="display:flex;align-items:center;gap:12px"></div>
+      <button class="config-btn" onclick="openConfigFolder()" style="margin-left:10px">+ Custom Preset</button>
     </div>
   </div>
+  
   <div style="display:flex;gap:8px;align-items:center">
     <button class="config-btn" id="updateBtn" onclick="checkForUpdates()" title="Check for updates">🔄 Update</button>
-    <button class="config-btn" id="configBtn" onclick="openConfigFolder()" title="Open config file folder">⚙ Config</button>
     <div id="streamingLabel" class="mode-switch-wrap">
       <button class="mode-btn active" id="modeBtnBatch" onclick="setStreamingMode(false)" title="파일 끝까지 분석 후 결과 표시">
         <span class="mode-icon">📋</span> Batch
