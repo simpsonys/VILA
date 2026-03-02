@@ -1,39 +1,102 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
 
-// Configure autoUpdater to use VILA_Release repository
+// Configure autoUpdater
 autoUpdater.setFeedURL({
   provider: 'github',
   owner: 'simpsonys',
   repo: 'VILA_Release'
 });
 
-const CONFIG_NAME = "pattern_config.json";
+// --- Default Preset Contents ---
+const DEFAULT_PRESET_0 = {
+  "start_patterns": ["cmd_from_mockapp"],
+  "end_patterns": ["GRPC CLOSE OUT"],
+  "success_patterns": ["result_code=success"],
+  "failure_patterns": ["result_code=fail"],
+  "clickable_patterns": {
+    "conversationId": { "pattern": "conversationId\\[([^\\]]+)\\]", "url_template": "https://sumologic.bixbydev.com/stg/conversation/?conversationId={value}", "display_name": "ConversationID" },
+    "requestId": { "pattern": "requestId\\[([^\\]]+)\\]", "url_template": null, "display_name": "RequestID" }
+  },
+  "utterance_patterns": {
+    "cmd_from_mockapp": { "pattern": "cmd_from_mockapp, ([^\\]]+)", "utterance": "{value}" }
+  },
+  "pattern_groups": {
+    "MakeMetaDataParams": { "name": "MakeMetaDataParams", "patterns": ["MakeMetaDataParams.*", "GetConfig.*"] },
+    "Actions": { "name": "Action", "patterns": ["PROCESS ACTION URL.*", "result_code"] },
+    "setDialogText": { "name": "setDialogText", "patterns": ["setDialogText.*"] },
+    "CapsuleGoal": { "name": "CapsuleGoal", "patterns": ["setExecutionCapsuleGoal.*"] },
+    "YT": { "name": "YT", "patterns": ["Dispatching deep link event.*"] }
+  },
+  "table_columns": [
+    { "key": "conversationId", "label": "Conversation ID", "width": "22%", "clickable_key": "conversationId" },
+    { "key": "requestId", "label": "Request ID", "width": "12%" },
+    { "key": "utterance", "label": "Utterance", "width": "22%", "type": "utterance" },
+    { "key": "CapsuleGoal", "label": "CapsuleGoal", "width": "8%", "type": "log" },
+    { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
+    { "key": "successLine", "label": "Success Match", "width": "28%", "type": "log" }
+  ]
+};
 
-function getConfigPath() {
-  return path.join(app.getPath("userData"), CONFIG_NAME);
+const DEFAULT_PRESET_1 = {
+  "start_patterns": ["GRPC OPEN IN"],
+  "end_patterns": ["GRPC CLOSE OUT"],
+  "success_patterns": ["result_code=success"],
+  "failure_patterns": ["result_code=fail"],
+  "clickable_patterns": {
+    "conversationId": { "pattern": "conversationId\\[([^\\]]+)\\]", "url_template": "https://sumologic.bixbydev.com/stg/conversation/?conversationId={value}", "display_name": "ConversationID" },
+    "requestId": { "pattern": "requestId\\[([^\\]]+)\\]", "url_template": null, "display_name": "RequestID" }
+  },
+  "utterance_patterns": {
+    "kAsr2Response": { "pattern": "kAsr2Response \\[FINAL\\] \\[([^\\]]+)\\]", "utterance": "{value}" }
+  },
+  "pattern_groups": {
+    "MakeMetaDataParams": { "name": "MakeMetaDataParams", "patterns": ["MakeMetaDataParams.*", "GetConfig.*"] },
+    "Actions": { "name": "Action", "patterns": ["PROCESS ACTION URL.*", "result_code"] },
+    "setDialogText": { "name": "setDialogText", "patterns": ["setDialogText.*"] },
+    "CapsuleGoal": { "name": "CapsuleGoal", "patterns": ["setExecutionCapsuleGoal.*"] },
+    "YT": { "name": "YT", "patterns": ["Dispatching deep link event.*"] }
+  },
+  "table_columns": [
+    { "key": "conversationId", "label": "Conversation ID", "width": "22%", "clickable_key": "conversationId" },
+    { "key": "requestId", "label": "Request ID", "width": "12%" },
+    { "key": "utterance", "label": "Utterance", "width": "22%", "type": "utterance" },
+    { "key": "CapsuleGoal", "label": "CapsuleGoal", "width": "8%", "type": "log" },
+    { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
+    { "key": "successLine", "label": "Success Match", "width": "28%", "type": "log" }
+  ]
+};
+
+function getConfigFolderPath() {
+  return app.getPath("userData");
 }
 
-function ensureConfig() {
-  const configPath = getConfigPath();
-  if (!fs.existsSync(configPath)) {
-    const defaultPath = path.join(__dirname, "default_config.json");
-    if (fs.existsSync(defaultPath)) {
-      fs.copyFileSync(defaultPath, configPath);
-      console.log("Created default config at:", configPath);
+function ensureDefaultPresets() {
+  const folder = getConfigFolderPath();
+  const p0Path = path.join(folder, "Preset0_CmdMyBixby_pattern_config.json");
+  const p1Path = path.join(folder, "Preset1_kAsr2Response_pattern_config.json");
+
+  // Check if ANY Preset file exists. If not, create defaults.
+  const files = fs.readdirSync(folder);
+  const hasPreset = files.some(f => f.startsWith("Preset") && f.endsWith(".json"));
+
+  if (!hasPreset) {
+    if (!fs.existsSync(p0Path)) {
+      fs.writeFileSync(p0Path, JSON.stringify(DEFAULT_PRESET_0, null, 2));
+      console.log("Created default Preset0");
+    }
+    if (!fs.existsSync(p1Path)) {
+      fs.writeFileSync(p1Path, JSON.stringify(DEFAULT_PRESET_1, null, 2));
+      console.log("Created default Preset1");
     }
   }
-  return configPath;
 }
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 900,
-    minHeight: 600,
+    width: 1400, height: 900, minWidth: 900, minHeight: 600,
     title: "Voice Interaction Log Analyzer",
     backgroundColor: "#080a10",
     webPreferences: {
@@ -44,148 +107,125 @@ function createWindow() {
   });
 
   win.setMenuBarVisibility(false);
-  // open developer tools automatically (helps diagnose startup issues)
-  // This will detach so the main window is unobstructed.
-  win.webContents.openDevTools({ mode: 'detach' });
+  // DevTools disabled as requested
+  // win.webContents.openDevTools({ mode: 'detach' }); 
   win.loadFile("index.html");
 }
 
+// --- IPC Handlers ---
 
-
-// IPC: Load config
-ipcMain.handle("load-config", async () => {
-  const configPath = ensureConfig();
+// List all preset files
+ipcMain.handle("list-presets", async () => {
+  ensureDefaultPresets();
+  const folder = getConfigFolderPath();
   try {
-    const data = fs.readFileSync(configPath, "utf-8");
-    return JSON.parse(data);
+    const files = fs.readdirSync(folder);
+    const presets = files
+      .filter(f => f.startsWith("Preset") && f.endsWith("_pattern_config.json"))
+      .sort(); // Sort by name (Preset0, Preset1...)
+    return presets;
   } catch (e) {
-    return null;
+    console.error(e);
+    return [];
   }
 });
 
-// IPC: Open config file location
+// Load a specific config file
+ipcMain.handle("load-specific-config", async (event, fileName) => {
+  const folder = getConfigFolderPath();
+  const filePath = path.join(folder, fileName);
+  try {
+    if (fs.existsSync(filePath)) {
+      return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+    }
+  } catch (e) { console.error(e); }
+  return null;
+});
+
+// Load default (first available) config
+ipcMain.handle("load-config", async () => {
+  ensureDefaultPresets();
+  const folder = getConfigFolderPath();
+  const files = fs.readdirSync(folder).filter(f => f.startsWith("Preset") && f.endsWith("_pattern_config.json")).sort();
+  if (files.length > 0) {
+    // Return both the config and the filename so UI knows what's selected
+    const filePath = path.join(folder, files[0]);
+    return { config: JSON.parse(fs.readFileSync(filePath, "utf-8")), fileName: files[0] };
+  }
+  return { config: DEFAULT_PRESET_0, fileName: "Default" };
+});
+
 ipcMain.handle("open-config-folder", async () => {
-  const configPath = getConfigPath();
-  const { shell } = require("electron");
-  shell.showItemInFolder(configPath);
+  shell.showItemInFolder(getConfigFolderPath());
 });
 
-// IPC: Read file with encoding detection
 ipcMain.handle("read-file-buffer", async (event, filePath) => {
-  const buffer = fs.readFileSync(filePath);
-  return buffer;
+  return fs.readFileSync(filePath);
 });
 
-// IPC: Open file dialog
 ipcMain.handle("open-file-dialog", async () => {
   const result = await dialog.showOpenDialog({
     properties: ["openFile"],
-    filters: [
-      { name: "Log Files", extensions: ["log", "txt", "text"] },
-      { name: "All Files", extensions: ["*"] },
-    ],
+    filters: [{ name: "Log Files", extensions: ["log", "txt", "text"] }, { name: "All Files", extensions: ["*"] }],
   });
-  if (result.canceled) return null;
-  return result.filePaths[0];
+  return result.canceled ? null : result.filePaths[0];
 });
 
-// IPC: Save export files with custom filename (Save As dialog)
 ipcMain.handle("save-export", async (event, { jsonData, htmlData, baseName }) => {
   const now = new Date();
-  const timestamp = now.getFullYear().toString().slice(2) +
-                    String(now.getMonth() + 1).padStart(2, '0') +
-                    String(now.getDate()).padStart(2, '0') +
-                    String(now.getHours()).padStart(2, '0') +
-                    String(now.getMinutes()).padStart(2, '0');
+  const timestamp = now.getFullYear().toString().slice(2) + String(now.getMonth() + 1).padStart(2, '0') + String(now.getDate()).padStart(2, '0') + String(now.getHours()).padStart(2, '0') + String(now.getMinutes()).padStart(2, '0');
   const defaultFileName = baseName || `${timestamp}_report`;
-  
   const result = await dialog.showSaveDialog({
-    title: "Export Analysis Report as HTML",
+    title: "Export Analysis Report",
     defaultPath: `${defaultFileName}_report.html`,
-    filters: [
-      { name: "HTML Report", extensions: ["html"] },
-      { name: "All Files", extensions: ["*"] },
-    ],
+    filters: [{ name: "HTML Report", extensions: ["html"] }, { name: "All Files", extensions: ["*"] }],
   });
-  
   if (result.canceled) return null;
-  
   const htmlPath = result.filePath;
   const dir = path.dirname(htmlPath);
   const basename = path.basename(htmlPath, path.extname(htmlPath));
   const jsonPath = path.join(dir, `${basename}_data.json`);
-  
   fs.writeFileSync(htmlPath, htmlData, "utf-8");
   fs.writeFileSync(jsonPath, jsonData, "utf-8");
   return { jsonPath, htmlPath };
 });
 
-// IPC: Application version (from package.json + build timestamp)
 ipcMain.handle("get-version", () => {
   const baseVersion = app.getVersion();
-  const buildTimePath = path.join(__dirname, "build-time.json");
   try {
-    if (fs.existsSync(buildTimePath)) {
-      const buildData = JSON.parse(fs.readFileSync(buildTimePath, "utf-8"));
-      return `${baseVersion}-${buildData.buildTime}`;
+    const buildPath = path.join(__dirname, "build-time.json");
+    if (fs.existsSync(buildPath)) {
+      return `${baseVersion}-${JSON.parse(fs.readFileSync(buildPath, "utf-8")).buildTime}`;
     }
-  } catch (e) {
-    console.error("Failed to read build time:", e);
-  }
+  } catch (e) {}
   return baseVersion;
 });
 
-// IPC: Get screenshots from log file directory
 ipcMain.handle("get-screenshots", async (event, logFilePath) => {
   if (!logFilePath) return [];
   try {
-    const dirPath = path.dirname(logFilePath);
-    const screenshotDir = path.join(dirPath, "screenshot");
-    if (!fs.existsSync(screenshotDir)) return [];
-    
-    const files = fs.readdirSync(screenshotDir);
-    const utteranceFiles = files.filter(f => /^발화_\d+\.png$/i.test(f)).sort();
-    
-    return utteranceFiles.map(f => ({
-      name: f,
-      path: path.join(screenshotDir, f)
-    }));
-  } catch (e) {
-    console.error("Failed to get screenshots:", e);
-    return [];
-  }
+    const dir = path.dirname(logFilePath);
+    const ssDir = path.join(dir, "screenshot");
+    if (!fs.existsSync(ssDir)) return [];
+    return fs.readdirSync(ssDir)
+      .filter(f => /^발화_\d+\.png$/i.test(f))
+      .sort()
+      .map(f => ({ name: f, path: path.join(ssDir, f) }));
+  } catch (e) { return []; }
 });
 
-// IPC: Read screenshot as base64
 ipcMain.handle("read-screenshot", async (event, filePath) => {
-  try {
-    const buffer = fs.readFileSync(filePath);
-    return buffer.toString("base64");
-  } catch (e) {
-    console.error("Failed to read screenshot:", e);
-    return null;
-  }
+  try { return fs.readFileSync(filePath).toString("base64"); } catch (e) { return null; }
 });
 
-// IPC: Open URL in external browser
 ipcMain.handle("open-external", async (event, url) => {
-  try {
-    const { shell } = require("electron");
-    await shell.openExternal(url);
-    return true;
-  } catch (e) {
-    console.error("Failed to open URL:", e);
-    return false;
-  }
+  try { await shell.openExternal(url); return true; } catch (e) { return false; }
 });
 
-// IPC: Open detail window for utterance
+// Open Detail Window - Adds ?mode=detail query param to prevent flickering
 ipcMain.handle("open-detail-window", async (event, { utteranceData, utteranceIndex }) => {
   const detailWindow = new BrowserWindow({
-    width: 900,
-    height: 700,
-    minWidth: 600,
-    minHeight: 500,
+    width: 900, height: 700, minWidth: 600, minHeight: 500,
     title: `Utterance Detail - ${utteranceIndex}`,
     backgroundColor: "#080a10",
     webPreferences: {
@@ -199,89 +239,33 @@ ipcMain.handle("open-detail-window", async (event, { utteranceData, utteranceInd
     detailWindow.webContents.send("set-utterance-data", { utteranceData, utteranceIndex });
   });
   
-  detailWindow.loadFile("index.html");
+  // Load with query param to trigger loading state immediately
+  detailWindow.loadFile("index.html", { query: { mode: 'detail' } });
   detailWindow.setMenuBarVisibility(false);
   return { windowId: detailWindow.id };
 });
 
-// IPC: Check for updates
-ipcMain.handle("check-updates", async () => {
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    return result;
-  } catch (e) {
-    console.error("Failed to check updates:", e);
-    return null;
-  }
-});
+ipcMain.handle("check-updates", async () => autoUpdater.checkForUpdates());
+ipcMain.handle("download-update", async () => { await autoUpdater.downloadUpdate(); return true; });
+ipcMain.handle("install-update", async () => autoUpdater.quitAndInstall());
 
-// IPC: Download update
-ipcMain.handle("download-update", async () => {
-  try {
-    await autoUpdater.downloadUpdate();
-    return true;
-  } catch (e) {
-    console.error("Failed to download update:", e);
-    return false;
-  }
-});
-
-// IPC: Install and restart
-ipcMain.handle("install-update", async () => {
-  autoUpdater.quitAndInstall();
-});
-
-// Auto-updater event listeners
+// App Lifecycle
 let mainWindow;
-
 app.whenReady().then(() => {
-  ensureConfig();
+  ensureDefaultPresets();
   createWindow();
   mainWindow = BrowserWindow.getAllWindows()[0];
 
-  // Auto-updater events
-  autoUpdater.on("update-available", (info) => {
-    console.log("Update available:", info.version);
-    if (mainWindow) {
-      mainWindow.webContents.send("update-available", info);
-    }
-  });
-
-  autoUpdater.on("update-not-available", (info) => {
-    console.log("No updates available");
-    if (mainWindow) {
-      mainWindow.webContents.send("update-not-available", info);
-    }
-  });
-
-  autoUpdater.on("error", (err) => {
-    console.error("Update error:", err);
-    if (mainWindow) {
-      mainWindow.webContents.send("update-error", err.message);
-    }
-  });
-
-  autoUpdater.on("download-progress", (progressObj) => {
-    if (mainWindow) {
-      mainWindow.webContents.send("download-progress", progressObj);
-    }
-  });
-
-  autoUpdater.on("update-downloaded", (info) => {
-    console.log("Update downloaded:", info.version);
-    if (mainWindow) {
-      mainWindow.webContents.send("update-downloaded", info);
-    }
-  });
-
+  autoUpdater.on("update-available", (info) => mainWindow?.webContents.send("update-available", info));
+  autoUpdater.on("update-not-available", (info) => mainWindow?.webContents.send("update-not-available", info));
+  autoUpdater.on("error", (err) => mainWindow?.webContents.send("update-error", err.message));
+  autoUpdater.on("download-progress", (p) => mainWindow?.webContents.send("download-progress", p));
+  autoUpdater.on("update-downloaded", (info) => mainWindow?.webContents.send("update-downloaded", info));
   autoUpdater.checkForUpdatesAndNotify();
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-// Update mainWindow reference when new window is created
 app.on("window-all-closed", () => {
   mainWindow = null;
   if (process.platform !== "darwin") app.quit();
