@@ -426,45 +426,95 @@ function updateModeButtons() {
 
 // ── Init: Load config ──
 let pendingDetailData = null;
+// index.html 내부 <script> 영역 수정
+
+// ... (변수 선언부 아래) ...
+
 async function init() {
-  // Restore streaming mode preference from localStorage
   const savedStreamingMode = localStorage.getItem('streamingMode');
-  if (savedStreamingMode !== null) {
-    streamingMode = savedStreamingMode === 'true';
-  }
+  if (savedStreamingMode !== null) streamingMode = savedStreamingMode === 'true';
   updateModeButtons();
 
-  try {
-    if (window.electronAPI) {
-      // Register IPC listener FIRST before any await - avoids race condition
-      if (window.electronAPI.onSetUtteranceData) {
-        window.electronAPI.onSetUtteranceData((data) => {
-          isDetailWindow = true;
-          currentDetailData = data;
-          if (CONFIG) { displayDetailWindow(data); }
-          else { pendingDetailData = data; }
-        });
+  if (window.electronAPI) {
+    // 1. 버전 정보 로드
+    if (window.electronAPI.getAppVersion) {
+      APP_VERSION = await window.electronAPI.getAppVersion();
+      document.getElementById('appSub').textContent = `[${APP_VERSION}] by SimpsonYS`;
+    }
+
+    // 2. 프리셋 목록 로드 (여기가 중요합니다)
+    try {
+      console.log("Refreshing preset list...");
+      await refreshPresetList();
+    } catch (err) {
+      console.error("Error refreshing presets:", err);
+      document.getElementById('presetRadios').innerHTML = '<span style="color:red;font-size:11px">Error loading presets</span>';
+    }
+
+    // 3. Config 로드
+    try {
+      const result = await window.electronAPI.loadConfig();
+      if (result) {
+        CONFIG = result.config;
+        currentConfigFileName = result.fileName;
+        
+        // Config가 로드된 후, 해당 파일에 맞는 라디오 버튼을 체크합니다.
+        console.log("Config loaded:", currentConfigFileName);
+        updatePresetRadioSelection(currentConfigFileName);
       }
-      CONFIG = await window.electronAPI.loadConfig();
-      if (window.electronAPI.getAppVersion) {
-        APP_VERSION = await window.electronAPI.getAppVersion();
-        document.getElementById('appSub').textContent = `[${APP_VERSION}] by SimpsonYS`;
-      }
-      if (pendingDetailData) { displayDetailWindow(pendingDetailData); pendingDetailData = null; }
+    } catch (err) {
+      console.error("Error loading config:", err);
     }
-  } catch (err) {
-    console.error('init() failed', err);
-    showErrorToast('Initialization failed: ' + (err.message || err), err.stack);
-  } finally {
-    if (!APP_VERSION) {
-      document.getElementById('appSub').textContent = '[dev build] by SimpsonYS';
+    
+    // 4. Detail View 이벤트 리스너 등록
+    if (window.electronAPI.onSetUtteranceData) {
+      window.electronAPI.onSetUtteranceData((data) => {
+        document.getElementById('loadingOverlay').classList.remove('active');
+        displayDetailWindow(data);
+      });
     }
-    if (!CONFIG) {
-      CONFIG = getDefaultConfig();
-    }
-    setupEventListeners();
+  } else {
+    // 웹 브라우저 단독 실행 시 (Electron 아님)
+    console.warn("Electron API not found. Presets disabled.");
+    document.getElementById('presetRadios').innerHTML = '<span style="font-size:11px;color:#64748b">Not in Electron mode</span>';
   }
+
+  setupEventListeners();
 }
+
+async function refreshPresetList() {
+  if (!window.electronAPI || !window.electronAPI.listPresets) return;
+  
+  const presets = await window.electronAPI.listPresets();
+  console.log("Presets found:", presets); // [디버그] 프리셋 목록 콘솔 출력
+
+  const container = document.getElementById('presetRadios');
+  container.innerHTML = '';
+  
+  if (!presets || presets.length === 0) {
+    container.innerHTML = '<span style="font-size:11px;color:#64748b">No presets found. Check config folder.</span>';
+    return;
+  }
+  
+  presets.forEach(fileName => {
+    // 파일명 파싱: Preset0_Name_pattern_config.json -> Name
+    const match = fileName.match(/Preset\d+_(.+)_pattern_config\.json/);
+    let displayName = match ? match[1] : fileName;
+    
+    // 언더바를 공백으로 변경하여 가독성 높임
+    displayName = displayName.replace(/_/g, ' '); 
+
+    const label = document.createElement('label');
+    label.className = 'radio-item';
+    label.innerHTML = `
+      <input type="radio" name="presetConfig" value="${fileName}" onchange="switchPreset('${fileName}')">
+      ${displayName}
+    `;
+    container.appendChild(label);
+  });
+}
+
+// ... (나머지 switchPreset, updatePresetRadioSelection 등 함수는 그대로 유지)
 
 
 function getDefaultConfig() {
