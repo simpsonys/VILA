@@ -100,6 +100,30 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
 .empty-msg { padding: 40px; text-align: center; color: #4a5568; font-size: 14px; }
 .config-btn { background: none; border: none; color: #4a5568; font-size: 11px; cursor: pointer; text-decoration: underline; }
 .config-btn:hover { color: #64748b; }
+
+/* Mode Switch */
+.mode-switch-wrap { display: flex; align-items: center; gap: 0; background: #0f1117; border: 1px solid #1e2433; border-radius: 8px; overflow: hidden; margin-right: 8px; }
+.mode-btn { display: flex; align-items: center; gap: 5px; padding: 6px 14px; font-size: 11px; font-weight: 600; color: #4a5568; background: transparent; border: none; cursor: pointer; transition: all 0.2s; user-select: none; white-space: nowrap; letter-spacing: 0.3px; }
+.mode-btn:hover { color: #94a3b8; background: #161b26; }
+.mode-btn.active { color: #60dcfa; background: linear-gradient(135deg, #1a3a5c, #1e2d5c); }
+.mode-btn .mode-icon { font-size: 12px; }
+.mode-switch-wrap .mode-btn:first-child { border-right: 1px solid #1e2433; }
+
+/* Error Modal */
+.error-toast { position: fixed; bottom: 20px; right: 20px; z-index: 2000; max-width: 520px; min-width: 340px; background: #1a0a0a; border: 1px solid #7f1d1d; border-radius: 12px; box-shadow: 0 8px 32px rgba(248,113,113,0.15), 0 0 0 1px rgba(127,29,29,0.3); animation: slideUp 0.3s ease-out; overflow: hidden; }
+.error-toast-hdr { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; background: linear-gradient(135deg, #2a0a0a, #1a0a0a); border-bottom: 1px solid #3b1515; }
+.error-toast-hdr-left { display: flex; align-items: center; gap: 8px; }
+.error-toast-icon { width: 24px; height: 24px; border-radius: 6px; background: #3b0d0d; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; }
+.error-toast-title { font-size: 13px; font-weight: 700; color: #f87171; }
+.error-toast-close { background: none; border: none; color: #64748b; font-size: 16px; cursor: pointer; padding: 4px; border-radius: 4px; line-height: 1; }
+.error-toast-close:hover { color: #f87171; background: #3b0d0d; }
+.error-toast-body { padding: 12px 16px; max-height: 200px; overflow-y: auto; }
+.error-toast-msg { font-family: 'Consolas', monospace; font-size: 12px; color: #fca5a5; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+.error-toast-time { font-size: 10px; color: #4a3030; padding: 6px 16px 10px; }
+.error-toast-stack { display: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid #3b1515; }
+.error-toast-stack.show { display: block; }
+.error-toast-toggle { background: none; border: none; color: #64748b; font-size: 11px; cursor: pointer; text-decoration: underline; padding: 0; margin-top: 6px; }
+.error-toast-toggle:hover { color: #f87171; }
 </style>
 </head>
 <body>
@@ -116,10 +140,14 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
   <div style="display:flex;gap:8px;align-items:center">
     <button class="config-btn" id="updateBtn" onclick="checkForUpdates()" title="Check for updates">🔄 Update</button>
     <button class="config-btn" id="configBtn" onclick="openConfigFolder()" title="Open config file folder">⚙ Config</button>
-    <label id="streamingLabel" style="display:none;align-items:center;gap:6px;font-size:12px;color:#64748b;cursor:pointer;user-select:none;margin-right:8px">
-      <input type="checkbox" id="streamingToggle" onchange="toggleStreamingMode()" style="cursor:pointer;width:16px;height:16px">
-      <span>Streaming</span>
-    </label>
+    <div id="streamingLabel" class="mode-switch-wrap">
+      <button class="mode-btn active" id="modeBtnBatch" onclick="setStreamingMode(false)" title="파일 끝까지 분석 후 결과 표시">
+        <span class="mode-icon">📋</span> Batch
+      </button>
+      <button class="mode-btn" id="modeBtnStream" onclick="setStreamingMode(true)" title="분석 중 실시간으로 결과 표시 (Streaming)">
+        <span class="mode-icon">⚡</span> Stream
+      </button>
+    </div>
     <button class="btn btn-primary" id="refreshBtn" style="display:none" onclick="refreshAnalysis()" title="Reload config and re-analyze">↺ Refresh</button>
     <button class="btn btn-primary" id="exportBtn" style="display:none" onclick="doExport()">⬇ Export HTML + JSON</button>
   </div>
@@ -133,6 +161,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
         <div style="display:flex;align-items:center;gap:10px">
           <span id="progressDot" style="color:#60dcfa;animation:pulse 1s infinite;font-size:14px">●</span>
           <span id="progressLabel" style="font-size:13px;font-weight:600;color:#60dcfa">Analyzing...</span>
+          <span id="progressMode" style="font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;letter-spacing:0.5px"></span>
           <span id="progressFile" style="font-size:11px;color:#4a5568"></span>
           <span class="enc-tag" id="progressEnc" style="display:none"></span>
         </div>
@@ -205,6 +234,11 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
       <div class="table-head" id="tableHead"></div>
       <div class="table-filters" id="tableFilters"></div>
       <div class="table-body" id="tableBody"></div>
+      <div id="batchWaitMsg" class="empty-msg" style="display:none">
+        <div style="animation:pulse 1.5s infinite;margin-bottom:8px">⏳</div>
+        <div>분석 완료 후 결과가 표시됩니다...</div>
+        <div style="font-size:11px;color:#334155;margin-top:4px">Batch 모드 · 실시간으로 보려면 헤더의 Stream 버튼을 누르세요</div>
+      </div>
     </div>
   </div>
 </div>
@@ -250,6 +284,9 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
   </div>
 </div>
 
+<!-- Error Toast Container -->
+<div id="errorToastContainer" style="position:fixed;bottom:20px;right:20px;z-index:2000;display:flex;flex-direction:column-reverse;gap:10px"></div>
+
 <script>
 // ── State ──
 let CONFIG = null;
@@ -273,14 +310,78 @@ let isDetailWindow = false; // track if this window is a detail display
 let currentDetailData = null; // holds utterance data if this is a detail window
 let streamingMode = false; // streaming analysis mode (false = wait until complete, true = show results in real-time)
 
-// global error handlers to surface issues when devtools not available
+// ── Error Toast System ──
+let errorToastId = 0;
+function showErrorToast(message, stack) {
+  const container = document.getElementById('errorToastContainer');
+  if (!container) return;
+  const id = ++errorToastId;
+  const time = new Date().toLocaleTimeString();
+  const hasStack = stack && stack !== message;
+  
+  const toast = document.createElement('div');
+  toast.className = 'error-toast';
+  toast.id = 'errorToast_' + id;
+  toast.innerHTML = `
+    <div class="error-toast-hdr">
+      <div class="error-toast-hdr-left">
+        <div class="error-toast-icon">⚠️</div>
+        <span class="error-toast-title">Error</span>
+      </div>
+      <button class="error-toast-close" onclick="dismissErrorToast(${id})">✕</button>
+    </div>
+    <div class="error-toast-body">
+      <div class="error-toast-msg">${escapeHtml(message)}</div>
+      ${hasStack ? `<button class="error-toast-toggle" onclick="toggleErrorStack(${id})">Show details</button>
+      <div class="error-toast-stack" id="errorStack_${id}">
+        <div class="error-toast-msg" style="color:#7f5555;font-size:11px">${escapeHtml(stack)}</div>
+      </div>` : ''}
+    </div>
+    <div class="error-toast-time">${time}</div>
+  `;
+  container.appendChild(toast);
+  
+  // Auto-dismiss after 15 seconds
+  setTimeout(() => dismissErrorToast(id), 15000);
+  
+  // Keep max 5 toasts
+  while (container.children.length > 5) {
+    container.removeChild(container.firstChild);
+  }
+}
+
+function dismissErrorToast(id) {
+  const toast = document.getElementById('errorToast_' + id);
+  if (toast) {
+    toast.style.transition = 'opacity 0.2s, transform 0.2s';
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateX(20px)';
+    setTimeout(() => toast.remove(), 200);
+  }
+}
+
+function toggleErrorStack(id) {
+  const stack = document.getElementById('errorStack_' + id);
+  if (stack) stack.classList.toggle('show');
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// global error handlers
 window.addEventListener('error', (e) => {
   console.error('Global error', e.error || e.message);
-  alert('Error occurred: ' + (e.error ? e.error.toString() : e.message));
+  const msg = e.error ? e.error.message || e.error.toString() : e.message;
+  const stack = e.error && e.error.stack ? e.error.stack : null;
+  showErrorToast(msg, stack);
 });
 window.addEventListener('unhandledrejection', (e) => {
   console.error('Unhandled rejection', e.reason);
-  alert('Unhandled promise rejection: ' + e.reason);
+  const msg = e.reason ? (e.reason.message || String(e.reason)) : 'Unknown rejection';
+  const stack = e.reason && e.reason.stack ? e.reason.stack : null;
+  showErrorToast(msg, stack);
 });
 
 // zoom state
@@ -303,13 +404,24 @@ function initColumnFilters() {
   }
 }
 
-// Toggle streaming mode
-function toggleStreamingMode() {
-  const toggleEl = document.getElementById('streamingToggle');
-  if (!toggleEl) return;
-  streamingMode = toggleEl.checked;
-  // Store preference in localStorage
+// Set streaming mode
+function setStreamingMode(enabled) {
+  streamingMode = enabled;
   localStorage.setItem('streamingMode', streamingMode);
+  updateModeButtons();
+}
+
+function updateModeButtons() {
+  const batchBtn = document.getElementById('modeBtnBatch');
+  const streamBtn = document.getElementById('modeBtnStream');
+  if (!batchBtn || !streamBtn) return;
+  if (streamingMode) {
+    streamBtn.classList.add('active');
+    batchBtn.classList.remove('active');
+  } else {
+    batchBtn.classList.add('active');
+    streamBtn.classList.remove('active');
+  }
 } 
 
 // ── Init: Load config ──
@@ -319,11 +431,8 @@ async function init() {
   const savedStreamingMode = localStorage.getItem('streamingMode');
   if (savedStreamingMode !== null) {
     streamingMode = savedStreamingMode === 'true';
-    const toggleEl = document.getElementById('streamingToggle');
-    if (toggleEl) {
-      toggleEl.checked = streamingMode;
-    }
   }
+  updateModeButtons();
 
   try {
     if (window.electronAPI) {
@@ -345,6 +454,7 @@ async function init() {
     }
   } catch (err) {
     console.error('init() failed', err);
+    showErrorToast('Initialization failed: ' + (err.message || err), err.stack);
   } finally {
     if (!APP_VERSION) {
       document.getElementById('appSub').textContent = '[dev build] by SimpsonYS';
@@ -522,7 +632,7 @@ async function doPaste() {
   try {
     const text = await navigator.clipboard.readText();
     if (text) processText(text, 'clipboard-paste');
-  } catch { alert('Clipboard access denied. Use Ctrl+V.'); }
+  } catch { showErrorToast('Clipboard access denied. Use Ctrl+V instead.'); }
 }
 
 // ── Encoding detection ──
@@ -575,8 +685,6 @@ async function refreshAnalysis() {
   }
   initColumnFilters();
   document.getElementById('tableFilters').innerHTML = '';
-  document.getElementById('progressLayout').style.display = 'block';
-  document.getElementById('progressSplitLayout').style.display = 'none';
   startParsing(currentRawText, currentFileName, currentEncoding || 'utf-8');
 }
 
@@ -678,32 +786,6 @@ function parseBlock(lines, lineNumbers = []) {
   else if (!hasS && hasF) e.result = 'FAIL';
   else e.result = 'Unknown';
 
-  // 발화가 없으면 START 라인에서 발화 추출 시도
-  if (!e.utterance && lines.length > 0) {
-    const firstLine = lines[0];
-    // START 라인이 "cmd_from_mockapp, <content>" 패턴이면 발화로 사용
-    // 또는 다른 START 패턴에서 쉼표 뒤 내용 추출
-    for (const startPattern of CONFIG.start_patterns || []) {
-      if (firstLine.includes(startPattern)) {
-        // 쉼표가 있으면 그 뒤의 내용을 발화로 사용
-        const commaIdx = firstLine.indexOf(',');
-        if (commaIdx > -1) {
-          const extracted = firstLine.substring(commaIdx + 1).trim();
-          if (extracted && extracted.length > 0) {
-            e.utterance = extracted;
-            break;
-          }
-        }
-        // 또는 괄호 안의 내용
-        const bracketMatch = firstLine.match(/\[([^\]]+)\]/);
-        if (bracketMatch) {
-          e.utterance = bracketMatch[1];
-          break;
-        }
-      }
-    }
-  }
-
   // Extract pattern groups
   for (const [gK, gC] of Object.entries(CONFIG.pattern_groups || {})) {
     const ml = [];
@@ -727,20 +809,49 @@ function parseBlock(lines, lineNumbers = []) {
 
 // ── UI Updates ──
 function showProgress(name, enc) {
+  // Always show results area and hide dropzone
   document.getElementById('dropzone').style.display = 'none';
   document.getElementById('resultsArea').style.display = '';
   document.getElementById('exportBtn').style.display = '';
   document.getElementById('refreshBtn').style.display = '';
-  document.getElementById('streamingLabel').style.display = 'flex';
   
+  // Reset progress panel: switch back to progress layout from split layout
   const pp = document.getElementById('progressPanel');
   pp.classList.add('show');
+  document.getElementById('progressLayout').style.display = 'block';
+  document.getElementById('progressSplitLayout').style.display = 'none';
+  
+  // Reset progress bar and counters
+  document.getElementById('progressBar').style.width = '0%';
+  document.getElementById('progressCount').textContent = '';
+  document.getElementById('progFound').textContent = '0';
+  document.getElementById('progMatched').textContent = '0';
+  
+  // Clear previous table results
+  document.getElementById('tableBody').innerHTML = '';
+  document.getElementById('statsBar').innerHTML = '';
+  
   document.getElementById('progressFile').textContent = `(${name})`;
   document.getElementById('progressEnc').textContent = enc.toUpperCase();
   document.getElementById('progressEnc').style.display = '';
   document.getElementById('progressLabel').textContent = 'Analyzing...';
   document.getElementById('progressLabel').style.color = '#60dcfa';
   document.getElementById('progressDot').style.display = '';
+  // Show mode indicator
+  const modeEl = document.getElementById('progressMode');
+  if (streamingMode) {
+    modeEl.textContent = '⚡ STREAM';
+    modeEl.style.background = '#1a3a5c';
+    modeEl.style.color = '#60dcfa';
+    modeEl.style.border = '1px solid #2a4a7c';
+    document.getElementById('batchWaitMsg').style.display = 'none';
+  } else {
+    modeEl.textContent = '📋 BATCH';
+    modeEl.style.background = '#1e2433';
+    modeEl.style.color = '#94a3b8';
+    modeEl.style.border = '1px solid #2a3040';
+    document.getElementById('batchWaitMsg').style.display = '';
+  }
 }
 
 function updateProgress(processed, total, found, matched) {
@@ -759,8 +870,8 @@ function finishParsing() {
   isAnalyzing = false;
   parseInterrupt = false;
   
-  // Hide streaming mode toggle after analysis complete
-  document.getElementById('streamingLabel').style.display = 'none';
+  // Hide batch wait message
+  document.getElementById('batchWaitMsg').style.display = 'none';
   
   // Copy values to split layout
   document.getElementById('progressFile2').textContent = document.getElementById('progressFile').textContent;
@@ -1120,7 +1231,7 @@ function closeModal() { document.getElementById('modal').classList.remove('open'
 async function showScreenshotViewer(filePath) {
   if (!window.electronAPI) return;
   const base64 = await window.electronAPI.readScreenshot(filePath);
-  if (!base64) { alert('Failed to load screenshot'); return; }
+  if (!base64) { showErrorToast('Failed to load screenshot'); return; }
   screenshotViewerScale = 1;
   document.getElementById('screenshotImage').src = `data:image/png;base64,${base64}`;
   document.getElementById('screenshotImage').style.transform = 'scale(1)';
@@ -1225,7 +1336,7 @@ tr.dr:hover{background:#111625}.badge{display:inline-block;padding:2px 10px;bord
 <script>let D,C,S,sc2=null,sd2='asc',fD2;
 function esc2(s){return s?s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):'N/A'}
 function mkC(t){if(!C||!t)return esc2(t);let r=esc2(t);for(const[,c]of Object.entries(C.clickable_patterns)){try{const re=new RegExp(c.pattern,'g');r=r.replace(re,(m,v)=>c.url_template?'<a href="'+c.url_template.replace('{value}',v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline">'+m+'</a>':'<span style="color:#a8e6cf;font-weight:600">'+m+'</span>')}catch(e){}}return r}
-function loadJ(f){const r=new FileReader();r.onload=e=>{try{const d=JSON.parse(e.target.result);D=d.entries;C=d.config;S=d.stats;init2()}catch(x){alert('Invalid JSON: '+x.message)}};r.readAsText(f)}
+function loadJ(f){const r=new FileReader();r.onload=e=>{try{const d=JSON.parse(e.target.result);D=d.entries;C=d.config;S=d.stats;init2()}catch(x){showErrorToast('Invalid JSON: '+x.message)}};r.readAsText(f)}
 function init2(){document.getElementById('fp').style.display='none';document.getElementById('si').style.display='';document.getElementById('tw').style.display='';
 document.getElementById('fs').textContent=D.length+' utterances';
 document.getElementById('sb').innerHTML=[{l:'Total',v:S.total,c:'#60dcfa'},{l:'Success',v:S.success,c:'#34d399'},{l:'Fail',v:S.fail,c:'#f87171'},{l:'Partial',v:S.partial,c:'#fbbf24'},{l:'Unknown',v:S.unknown,c:'#94a3b8'},{l:'Pass Rate',v:S.passRate+'%',c:'#a78bfa'}].map(s=>'<div class="stat"><b style="color:'+s.c+'">'+s.v+'</b><span>'+s.l+'</span></div>').join('');
@@ -1345,7 +1456,7 @@ async function openConfigFolder() {
   if (window.electronAPI) {
     await window.electronAPI.openConfigFolder();
   } else {
-    alert('Config file is embedded in the application. Use the Electron desktop version to customize config.');
+    showErrorToast('Config file is embedded in the application. Use the Electron desktop version to customize config.');
   }
 }
 
