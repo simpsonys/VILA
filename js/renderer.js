@@ -100,6 +100,13 @@ function changeZoom(delta) {
 
 // ── Initialization ──
 async function init() {
+    // 0. Detail Window Loading Overlay (Query 파라미터 확인)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('mode') === 'detail') {
+        const lo = document.getElementById('loadingOverlay');
+        if (lo) lo.classList.add('active');
+    }
+
     // 1. Detail View 이벤트 리스너 등록 (Race condition 방지를 위해 최상단으로 이동)
     if (window.electronAPI && window.electronAPI.onSetUtteranceData) {
         window.electronAPI.onSetUtteranceData((data) => {
@@ -521,19 +528,19 @@ function startParsing(text, name, enc) {
     initColumnFilters();
     showProgress(name, enc);
 
-    const lines = text.split('\n'), total = lines.length;
-    const startREs = CONFIG.start_patterns.map(p => new RegExp(p));
-    const endREs = CONFIG.end_patterns.map(p => new RegExp(p));
+    const lines = text.split(/\r?\n|\r/), total = lines.length;
+    const startCombined = new RegExp(CONFIG.start_patterns.join('|'));
+    const endCombined = new RegExp(CONFIG.end_patterns.join('|'));
     let buffer = [], bufferLines = [], inBlock = false, idx = 0, found = 0, matched = 0;
-    const CHUNK = 4000;
+    const CHUNK = 3000; // Chunk size for UI responsiveness
 
     function tick() {
         if (parseInterrupt) { finishParsing(); return; }
         const end = Math.min(idx + CHUNK, total);
         for (; idx < end; idx++) {
             const t = lines[idx].trim(); if (!t) continue;
-            const isS = startREs.some(r => r.test(t));
-            const isE = endREs.some(r => r.test(t));
+            const isS = startCombined.test(t);
+            const isE = endCombined.test(t);
             if (isS) {
                 if (inBlock && buffer.length > 0) {
                     const entry = parseBlock(buffer, bufferLines);

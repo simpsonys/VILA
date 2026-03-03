@@ -358,7 +358,7 @@ ipcMain.handle("open-detail-window", async (event, data) => {
     detailWindow.webContents.send("set-utterance-data", data);
   });
   
-  detailWindow.loadFile("index.html");
+  detailWindow.loadFile("index.html", { query: { mode: 'detail' } });
   detailWindow.setMenuBarVisibility(false);
 
   detailWindow.on("closed", () => {

@@ -21,6 +21,11 @@
       "pattern": "requestId\\[([^\\]]+)\\]",
       "url_template": null,
       "display_name": "RequestID"
+    },
+    "capsuleGoal": {
+      "pattern": "setExecutionCapsuleGoal\\(\\d+\\)\\s*>\\s*(.*)",
+      "url_template": null,
+      "display_name": "Capsule Goal"
     }
   },
   "utterance_patterns": {
@@ -50,12 +55,6 @@
 		"setDialogText.*"
       ]
     },
-    "CapsuleGoal": {
-      "name": "CapsuleGoal",
-      "patterns": [
-		"setExecutionCapsuleGoal\\(\\d+\\)\\s*>\\s*(.*)"
-      ]
-    },
     "YT": {
       "name": "YT",
       "patterns": [
@@ -67,7 +66,7 @@
     { "key": "conversationId", "label": "Conversation ID", "width": "22%", "clickable_key": "conversationId" },
     { "key": "requestId", "label": "Request ID", "width": "12%" },
     { "key": "utterance", "label": "Utterance", "width": "22%", "type": "utterance" },
-    { "key": "CapsuleGoal", "label": "CapsuleGoal", "width": "8%", "type": "log" },
+    { "key": "capsuleGoal", "label": "Capsule Goal", "width": "8%", "type": "log" },
     { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
     { "key": "successLine", "label": "Success Match", "width": "28%", "type": "log" }
   ]

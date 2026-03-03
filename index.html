@@ -110,6 +110,14 @@
             <button class="btn-paste" onclick="event.stopPropagation();doPaste()">📋 Paste from Clipboard</button>
         </div>
 
+        <!-- Detail Window Loading (hidden by default) -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-content">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">Analyzing logs...</div>
+            </div>
+        </div>
+
         <!-- Results area (hidden initially) -->
         <div id="resultsArea" style="display:none">
             <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px;gap:12px">
