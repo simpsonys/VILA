@@ -20,7 +20,10 @@
 
         <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px">
             <div class="preset-bar" id="presetBar" style="display:flex;align-items:center;gap:15px;padding:5px 0;width:fit-content">
-                <button class="btn btn-ghost" style="padding:2px 6px;font-size:12px" onclick="openConfigFolder()" title="Open config folder">📂</button>
+                <div style="display:flex;align-items:center;gap:4px;">
+                    <button class="btn btn-ghost" style="padding:2px 6px;font-size:12px" onclick="openConfigFolder()" title="Open Config Folder">📂</button>
+                    <button class="btn btn-ghost" style="padding:2px 6px;font-size:12px" id="openLogBtn" title="Open App Log File">📄</button>
+                </div>
                 <span class="preset-label" style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase">Preset:</span>
                 <div class="radio-group" id="presetRadios" style="display:flex;align-items:center;gap:12px"></div>
                 <button class="config-btn" onclick="addCustomPreset()" style="margin-left:10px">+ Custom Preset</button>

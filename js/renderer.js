@@ -25,10 +25,21 @@ let currentDetailData = null; // holds utterance data if this is a detail window
 let streamingMode = false; // streaming analysis mode (false = wait until complete, true = show results in real-time)
 let currentConfigFileName = null; // currently active preset config filename
 
+// ── Logging ──
+function logToFile(level, message, ...args) {
+    // Also log to the dev console
+    const consoleLevel = level === 'error' ? 'error' : 'info';
+    console[consoleLevel](message, ...args);
+    
+    if (window.electronAPI && window.electronAPI.logMessage) {
+        window.electronAPI.logMessage({ level, message, args });
+    }
+}
 // ── Error Toast System ──
 let errorToastId = 0;
 
 function showErrorToast(message, stack) {
+    logToFile('error', message, stack); // Log every error shown to the user
     const container = document.getElementById('errorToastContainer');
     if (!container) return;
     const id = ++errorToastId;
@@ -338,6 +349,12 @@ function setupEventListeners() {
     };
     setupSecondaryDropZone();
 
+    document.getElementById('openLogBtn').addEventListener('click', () => {
+        if (window.electronAPI && window.electronAPI.openLogFile) {
+            window.electronAPI.openLogFile();
+        }
+    });
+
     document.addEventListener('paste', e => {
         if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
         const text = e.clipboardData?.getData('text');
@@ -472,7 +489,7 @@ async function openFile() {
                 processBuffer(new Uint8Array(buffer).buffer, name);
             } catch (err) {
                 showErrorToast(`Failed to read file: ${err.message}`, err.stack);
-                resetApp();
+                // Do not reset, allow user to see the error
             }
         }
     } else {
@@ -495,7 +512,7 @@ function readFile(file) {
     reader.onload = e => processBuffer(e.target.result, file.name);
     reader.onerror = err => {
         showErrorToast(`File reading error: ${err.message}`, err.stack);
-        resetApp();
+        // Do not reset
     };
     reader.readAsArrayBuffer(file);
 }
@@ -550,13 +567,13 @@ function processBuffer(buffer, name) {
                 startParsing(text, name, enc);
             } catch (e) {
                 showErrorToast(`Failed to decode file. Try a different encoding if possible. Error: ${e.message}`, e.stack);
-                resetApp();
+                // Do not reset
             }
         }, 50);
 
     } catch (e) {
         showErrorToast(`Failed to process file buffer: ${e.message}`, e.stack);
-        resetApp();
+        // Do not reset
     }
 }
 
@@ -565,10 +582,11 @@ function processText(text, name) {
         currentEncoding = 'utf-8';
         currentFileName = name;
         currentRawText = text;
+        logToFile('info', 'Processing text from clipboard');
         startParsing(text, name, 'utf-8');
     } catch (e) {
         showErrorToast(`Failed to process text: ${e.message}`, e.stack);
-        resetApp();
+        // Do not reset
     }
 }
 

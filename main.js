@@ -1,7 +1,52 @@
-const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
+
+// --- App Logging ---
+const LOG_FILE_NAME = 'vila-app.log';
+function getLogPath() {
+  try {
+    return path.join(app.getPath('userData'), LOG_FILE_NAME);
+  } catch (e) {
+    // Fallback for when app is not ready
+    return path.join(process.env.APPDATA || (process.platform == 'darwin' ? process.env.HOME + '/Library/Preferences' : process.env.HOME + "/.local/share"), 'vila-app.log');
+  }
+}
+
+function writeToLog(level, message, ...args) {
+  const logPath = getLogPath();
+  const timestamp = new Date().toISOString();
+  const formattedMessage = `[${timestamp}] [${level.toUpperCase()}] ${message}\n`;
+  const details = args.length > 0 ? args.map(arg => {
+    if (arg instanceof Error) return arg.stack;
+    return typeof arg === 'object' ? JSON.stringify(arg, null, 2) : arg;
+  }).join('\n') + '\n' : '';
+
+  try {
+    fs.appendFileSync(logPath, formattedMessage + details);
+  } catch (err) {
+    console.error('Failed to write to log file:', err);
+  }
+}
+
+// IPC handler for logging from renderer
+ipcMain.on('log-message', (event, { level, message, args }) => {
+  writeToLog(level, message, ...args);
+});
+
+// IPC handler to open the log file
+ipcMain.handle('open-log-file', async () => {
+  const logPath = getLogPath();
+  try {
+    await shell.openPath(logPath);
+  } catch(e) {
+    writeToLog('error', 'Failed to open log file via shell', e);
+    // Fallback for some systems
+    shell.showItemInFolder(logPath);
+  }
+});
+// --- End App Logging ---
 
 // Configure autoUpdater to use VILA_Release repository
 autoUpdater.setFeedURL({
@@ -414,6 +459,7 @@ if (!gotTheLock) {
   });
 
   app.whenReady().then(() => {
+    writeToLog('info', `VILA App Started, Version: ${app.getVersion()}`);
     ensureConfig();
     createWindow();
     mainWindow = BrowserWindow.getAllWindows()[0];

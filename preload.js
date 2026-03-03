@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   switchPreset: (fileName) => ipcRenderer.invoke("switch-preset", fileName),
   addCustomPreset: () => ipcRenderer.invoke("add-custom-preset"),
   
+  // Logging
+  logMessage: (log) => ipcRenderer.send("log-message", log),
+  openLogFile: () => ipcRenderer.invoke("open-log-file"),
+
   // Auto-update methods
   checkUpdates: () => ipcRenderer.invoke("check-updates"),
   downloadUpdate: () => ipcRenderer.invoke("download-update"),
