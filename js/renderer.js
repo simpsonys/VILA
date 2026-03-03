@@ -423,22 +423,57 @@ function setupEventListeners() {
     }
 }
 
+function showLoadingState(fileName) {
+    document.getElementById('dropzone').style.display = 'none';
+    document.getElementById('resultsArea').style.display = '';
+    const pp = document.getElementById('progressPanel');
+    pp.classList.add('show');
+    document.getElementById('progressLayout').style.display = 'block';
+    document.getElementById('progressSplitLayout').style.display = 'none';
+
+    document.getElementById('progressLabel').textContent = `Loading ${fileName}...`;
+    document.getElementById('progressLabel').style.color = '#94a3b8';
+    document.getElementById('progressDot').style.display = 'none';
+    document.getElementById('progressBar').style.width = '5%'; 
+    document.getElementById('progressCount').textContent = '';
+    document.getElementById('progFound').textContent = '0';
+    document.getElementById('progMatched').textContent = '0';
+    document.getElementById('tableBody').innerHTML = '';
+    document.getElementById('statsBar').innerHTML = '';
+}
+
+function updateLoadingState(message) {
+    const label = document.getElementById('progressLabel');
+    if (label) {
+        label.textContent = message;
+    }
+}
 // ── File Reading ──
 async function openFile() {
     if (window.electronAPI) {
         const filePath = await window.electronAPI.openFileDialog();
         if (filePath) {
             if (isAnalyzing) {
-                const shouldContinue = confirm('동쥠: 파일 분석이 진행 중입니다. 취소하고 새 파일을 분석하시겠습니까?');
+                const shouldContinue = confirm('Analysis in progress. Cancel and open new file?');
                 if (!shouldContinue) return;
                 parseInterrupt = true;
             }
-            const buffer = await window.electronAPI.readFileBuffer(filePath);
             const name = filePath.split(/[\\\/]/).pop();
-            const baseName = name.replace(/\.[^.]*$/, '');
-            currentFilePath = filePath;
-            currentFilePath_base = baseName;
-            processBuffer(new Uint8Array(buffer).buffer, name);
+            showLoadingState(name); // Show loading state immediately
+
+            try {
+                // Yield to UI thread before reading buffer
+                await new Promise(resolve => setTimeout(resolve, 50));
+                
+                const buffer = await window.electronAPI.readFileBuffer(filePath);
+                const baseName = name.replace(/\.[^.]*$/, '');
+                currentFilePath = filePath;
+                currentFilePath_base = baseName;
+                processBuffer(new Uint8Array(buffer).buffer, name);
+            } catch (err) {
+                showErrorToast(`Failed to read file: ${err.message}`, err.stack);
+                resetApp();
+            }
         }
     } else {
         const input = document.createElement('input');
@@ -449,20 +484,33 @@ async function openFile() {
 }
 
 function readFile(file) {
+    showLoadingState(file.name); // Show loading state immediately
+    
     if (file.path) {
         currentFilePath = file.path;
         currentFilePath_base = file.name.replace(/\.[^.]*$/, '');
     }
+    
     const reader = new FileReader();
     reader.onload = e => processBuffer(e.target.result, file.name);
+    reader.onerror = err => {
+        showErrorToast(`File reading error: ${err.message}`, err.stack);
+        resetApp();
+    };
     reader.readAsArrayBuffer(file);
 }
 
 async function doPaste() {
     try {
         const text = await navigator.clipboard.readText();
-        if (text) processText(text, 'clipboard-paste');
-    } catch { showErrorToast('Clipboard access denied. Use Ctrl+V instead.'); }
+        if (text) {
+            showLoadingState('clipboard-paste');
+            await new Promise(resolve => setTimeout(resolve, 50)); // Yield to UI
+            processText(text, 'clipboard-paste');
+        }
+    } catch { 
+        showErrorToast('Clipboard access denied. Use Ctrl+V instead.');
+    }
 }
 
 function detectEncoding(buffer) {
@@ -488,19 +536,40 @@ function stripTs(line) {
 }
 
 function processBuffer(buffer, name) {
-    const enc = detectEncoding(buffer);
-    const text = new TextDecoder(enc).decode(buffer);
-    currentEncoding = enc;
-    currentFileName = name;
-    currentRawText = text;
-    startParsing(text, name, enc);
+    try {
+        updateLoadingState("Detecting encoding...");
+        const enc = detectEncoding(buffer);
+        updateLoadingState(`Decoding file (${enc.toUpperCase()})...`);
+        
+        setTimeout(() => {
+            try {
+                const text = new TextDecoder(enc).decode(buffer);
+                currentEncoding = enc;
+                currentFileName = name;
+                currentRawText = text;
+                startParsing(text, name, enc);
+            } catch (e) {
+                showErrorToast(`Failed to decode file. Try a different encoding if possible. Error: ${e.message}`, e.stack);
+                resetApp();
+            }
+        }, 50);
+
+    } catch (e) {
+        showErrorToast(`Failed to process file buffer: ${e.message}`, e.stack);
+        resetApp();
+    }
 }
 
 function processText(text, name) {
-    currentEncoding = 'utf-8';
-    currentFileName = name;
-    currentRawText = text;
-    startParsing(text, name, 'utf-8');
+    try {
+        currentEncoding = 'utf-8';
+        currentFileName = name;
+        currentRawText = text;
+        startParsing(text, name, 'utf-8');
+    } catch (e) {
+        showErrorToast(`Failed to process text: ${e.message}`, e.stack);
+        resetApp();
+    }
 }
 
 async function refreshAnalysis() {
@@ -1256,11 +1325,20 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')cm()});
 }
 
 function resetApp() {
-    entries = []; filteredData = []; sortCol = null; sortDir = 'asc'; currentFileName = null; currentFilePath = null; currentEncoding = null;
-    document.getElementById('dropzone').style.display = ''; document.getElementById('resultsArea').style.display = 'none'; document.getElementById('exportBtn').style.display = 'none';
-    const pp = document.getElementById('progressPanel'); if (pp) pp.classList.remove('show');
-    const pl = document.getElementById('progressLayout'); if (pl) pl.style.display = 'block';
-    const psl = document.getElementById('progressSplitLayout'); if (psl) psl.style.display = 'none';
+    entries = []; filteredData = []; sortCol = null; sortDir = 'asc'; currentFileName = null; currentFilePath = null; currentEncoding = null; currentRawText = null;
+    document.getElementById('dropzone').style.display = ''; 
+    document.getElementById('resultsArea').style.display = 'none'; 
+    document.getElementById('exportBtn').style.display = 'none';
+    document.getElementById('refreshBtn').style.display = 'none';
+    
+    const pp = document.getElementById('progressPanel'); 
+    if (pp) pp.classList.remove('show');
+    
+    const pl = document.getElementById('progressLayout'); 
+    if (pl) pl.style.display = 'block';
+
+    const psl = document.getElementById('progressSplitLayout'); 
+    if (psl) psl.style.display = 'none';
 }
 
 // ── Updates ──
