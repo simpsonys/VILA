@@ -3,8 +3,12 @@ const { contextBridge, ipcRenderer } = require("electron");
 contextBridge.exposeInMainWorld("electronAPI", {
   loadConfig: () => ipcRenderer.invoke("load-config"),
   openConfigFolder: () => ipcRenderer.invoke("open-config-folder"),
-  openAndReadFile: () => ipcRenderer.invoke("open-and-read-file"),
+  openAndReadFile: (filePath) => ipcRenderer.invoke("open-and-read-file", filePath),
   onFileContentLoaded: (callback) => ipcRenderer.on("file-content-loaded", (event, data) => callback(data)),
+  onFileDataChunk: (callback) => ipcRenderer.on("file-data-chunk", (event, data) => callback(data)),
+  onFileReadComplete: (callback) => ipcRenderer.on("file-read-complete", (event, data) => callback(data)),
+  onFileReadError: (callback) => ipcRenderer.on("file-read-error", (event, data) => callback(data)),
+  cancelFileRead: () => ipcRenderer.send("cancel-file-read"),
   saveExport: (data) => ipcRenderer.invoke("save-export", data),
   getAppVersion: () => ipcRenderer.invoke("get-version"),
   getScreenshots: (args) => ipcRenderer.invoke("get-screenshots", args),

@@ -2,6 +2,11 @@ const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
+const { pipeline } = require("stream/promises");
+const { Transform } = require("stream");
+const jschardet = require("jschardet");
+
+let activeFileStream = null;
 
 // --- App Logging ---
 const LOG_FILE_NAME = 'vila-app.log';
@@ -215,54 +220,104 @@ ipcMain.handle("open-config-folder", async () => {
   shell.showItemInFolder(configPath);
 });
 
-// IPC: Open file dialog, read content, and send to renderer
-ipcMain.handle("open-and-read-file", async (event) => {
-  writeToLog('info', 'File open dialog initiated by renderer.');
-  const result = await dialog.showOpenDialog({
-    properties: ["openFile"],
-    filters: [
-      { name: "Log Files", extensions: ["log", "txt", "text"] },
-      { name: "All Files", extensions: ["*"] },
-    ],
-  });
+// IPC: Open file dialog and stream content to renderer
+ipcMain.handle("open-and-read-file", async (event, forceFilePath) => {
+  let filePath = forceFilePath;
+  
+  if (!filePath) {
+    writeToLog('info', 'File open dialog initiated by renderer (streaming mode).');
+    const result = await dialog.showOpenDialog({
+      properties: ["openFile"],
+      filters: [
+        { name: "Log Files", extensions: ["log", "txt", "text"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
+    });
 
-  if (result.canceled || !result.filePaths[0]) {
-    writeToLog('info', 'File open dialog canceled.');
-    return { success: false, reason: 'Canceled' };
+    if (result.canceled || !result.filePaths[0]) {
+      writeToLog('info', 'File open dialog canceled.');
+      return { success: false, reason: 'Canceled' };
+    }
+    filePath = result.filePaths[0];
   }
-
-  const filePath = result.filePaths[0];
+  
   const fileName = path.basename(filePath);
-  writeToLog('info', `File selected: ${filePath}`);
+  writeToLog('info', `File selected for streaming: ${filePath}`);
 
   try {
-    const buffer = fs.readFileSync(filePath);
-    writeToLog('info', `File read into buffer. Size: ${buffer.length} bytes.`);
-    
-    // Encoding detection can be part of a utility function if needed elsewhere
-    const jschardet = require('jschardet');
-    const detected = jschardet.detect(buffer);
+    // Detect encoding from first 4KB
+    const fd = fs.openSync(filePath, 'r');
+    const initialBuffer = Buffer.alloc(4096);
+    const bytesRead = fs.readSync(fd, initialBuffer, 0, 4096, 0);
+    fs.closeSync(fd);
+
+    const detected = jschardet.detect(initialBuffer.slice(0, bytesRead));
     const encoding = detected.encoding || 'utf-8';
-    writeToLog('info', `Detected encoding: ${encoding} with confidence: ${detected.confidence}`);
+    writeToLog('info', `Detected encoding for stream: ${encoding} with confidence: ${detected.confidence}`);
 
-    const { TextDecoder } = require('util');
-    const decoder = new TextDecoder(encoding);
-    const content = decoder.decode(buffer);
-    writeToLog('info', `File decoded successfully. Content length: ${content.length}`);
+    const stats = fs.statSync(filePath);
+    const fileSize = stats.size;
 
-    // Send the content back to the renderer
+    // Notify renderer that file loading started
     event.sender.send('file-content-loaded', {
       success: true,
       filePath,
       fileName,
       encoding,
-      content
+      fileSize,
+      isStreaming: true
     });
+
+    // Close any existing stream
+    if (activeFileStream) {
+      activeFileStream.destroy();
+    }
+
+    const { TextDecoder } = require('util');
+    const decoder = new TextDecoder(encoding);
+    
+    activeFileStream = fs.createReadStream(filePath);
+    
+    activeFileStream.on('data', (chunk) => {
+      // Convert buffer chunk to string using detected encoding
+      const textChunk = decoder.decode(chunk, { stream: true });
+      event.sender.send('file-data-chunk', {
+        text: textChunk,
+        byteLength: chunk.length
+      });
+    });
+
+    activeFileStream.on('end', () => {
+      // Final flush
+      const finalChunk = decoder.decode();
+      if (finalChunk) {
+        event.sender.send('file-data-chunk', finalChunk);
+      }
+      event.sender.send('file-read-complete');
+      activeFileStream = null;
+      writeToLog('info', `Streaming completed for: ${fileName}`);
+    });
+
+    activeFileStream.on('error', (err) => {
+      writeToLog('error', 'Error during file streaming.', err);
+      event.sender.send('file-read-error', err.message);
+      activeFileStream = null;
+    });
+
     return { success: true };
 
   } catch (err) {
-    writeToLog('error', 'Error reading or decoding file in main process.', err);
+    writeToLog('error', 'Error initializing file stream in main process.', err);
     return { success: false, reason: err.message, stack: err.stack };
+  }
+});
+
+// IPC: Cancel active file streaming
+ipcMain.on("cancel-file-read", () => {
+  if (activeFileStream) {
+    writeToLog('info', 'File streaming canceled by renderer.');
+    activeFileStream.destroy();
+    activeFileStream = null;
   }
 });
 
@@ -317,7 +372,7 @@ ipcMain.handle("get-screenshots", async (event, args) => {
   const logFilePath = typeof args === 'string' ? args : args.logFilePath;
   const utterance = typeof args === 'string' ? null : args.utterance;
 
-  writeToLog('info', 'get-screenshots called', { logFilePath, utterance });
+  writeToLog('info', `get-screenshots: Searching for screenshots. Utterance: "${utterance}", LogPath: ${logFilePath}`);
 
   if (!logFilePath) {
     writeToLog('warn', 'get-screenshots: logFilePath is missing.');
@@ -341,7 +396,7 @@ ipcMain.handle("get-screenshots", async (event, args) => {
     }
 
     if (!screenshotDir) {
-      writeToLog('warn', 'get-screenshots: No standard screenshot folder found. Falling back to directory scan.');
+      writeToLog('warn', `get-screenshots: No standard screenshot folder found in ${dirPath}. Falling back to directory scan.`);
       // Fallback: search directory for any folder that looks like screenshots
       try {
         const items = fs.readdirSync(dirPath);
@@ -366,7 +421,7 @@ ipcMain.handle("get-screenshots", async (event, args) => {
     }
     
     const files = fs.readdirSync(screenshotDir);
-    writeToLog('info', `get-screenshots: Found ${files.length} files in screenshot directory.`);
+    writeToLog('info', `get-screenshots: Found ${files.length} files in screenshot directory: ${screenshotDir}. Files: [${files.slice(0, 5).join(', ')}${files.length > 5 ? '...' : ''}]`);
     
     // Filter files: start with "발화_" or contain the utterance string
     const utteranceFiles = files.filter(f => {
@@ -375,7 +430,7 @@ ipcMain.handle("get-screenshots", async (event, args) => {
       if (nameLower.startsWith("발화_")) return true;
       if (utterance) {
         // Remove common non-filename characters and trim
-        const sanitizedUtt = utterance.toLowerCase().replace(/[:/\\?*<>|]/g, " ").replace(/\s+/g, " ").trim();
+        const sanitizedUtt = utterance.toLowerCase().replace(/[:/\\?*<>|+\-_]/g, " ").replace(/\s+/g, " ").trim();
         if (sanitizedUtt && nameLower.includes(sanitizedUtt)) return true;
         
         // Split utterance by spaces and check if first 2-3 words match

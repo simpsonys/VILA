@@ -25,6 +25,19 @@ let currentDetailData = null; // holds utterance data if this is a detail window
 let streamingMode = true; // streaming analysis mode (false = wait until complete, true = show results in real-time)
 let currentConfigFileName = null; // currently active preset config filename
 
+// Streaming state
+let streamLineBuffer = "";
+let streamLineCount = 0;
+let streamFoundCount = 0;
+let streamMatchedCount = 0;
+let streamBlockBuffer = [];
+let streamBlockLineNumbers = [];
+let streamInBlock = false;
+let streamStartPatterns = null;
+let streamEndPatterns = null;
+let streamTotalBytes = 0;
+let streamBytesProcessed = 0;
+
 // ── Logging ──
 function logToFile(level, message, ...args) {
     // Also log to the dev console
@@ -139,17 +152,40 @@ async function init() {
         if (window.electronAPI.onFileContentLoaded) {
             window.electronAPI.onFileContentLoaded((data) => {
                 if (data.success) {
-                    logToFile('info', 'File content received from main process.', { fileName: data.fileName });
+                    logToFile('info', 'File metadata received from main process.', { fileName: data.fileName, streaming: data.isStreaming });
                     currentFilePath = data.filePath;
                     currentFileName = data.fileName;
-                    currentRawText = data.content;
                     currentEncoding = data.encoding;
                     currentFilePath_base = data.fileName.replace(/\.[^.]*$/, '');
                     
-                    startParsing(data.content, data.fileName, data.encoding);
+                    if (data.isStreaming) {
+                        prepareStreamingParsing(data.fileName, data.encoding, data.fileSize);
+                    } else {
+                        currentRawText = data.content;
+                        startParsing(data.content, data.fileName, data.encoding);
+                    }
                 } else {
                     showErrorToast(`Failed to load file: ${data.reason}`, data.stack);
                 }
+            });
+        }
+
+        if (window.electronAPI.onFileDataChunk) {
+            window.electronAPI.onFileDataChunk((chunk) => {
+                handleStreamingChunk(chunk);
+            });
+        }
+
+        if (window.electronAPI.onFileReadComplete) {
+            window.electronAPI.onFileReadComplete(() => {
+                finishStreamingParsing();
+            });
+        }
+
+        if (window.electronAPI.onFileReadError) {
+            window.electronAPI.onFileReadError((error) => {
+                showErrorToast(`File read error: ${error}`);
+                isAnalyzing = false;
             });
         }
         
@@ -267,12 +303,16 @@ async function switchPreset(fileName) {
             console.log('Switched to preset:', currentConfigFileName);
 
             // Re-analyze current file if loaded
-            if (currentRawText && currentFileName) {
-                entries = [];
-                filteredData = [];
-                initColumnFilters();
-                document.getElementById('tableFilters').innerHTML = '';
-                startParsing(currentRawText, currentFileName, currentEncoding || 'utf-8');
+            if (currentFileName) {
+                if (currentFilePath && window.electronAPI.openAndReadFile) {
+                    window.electronAPI.openAndReadFile(currentFilePath);
+                } else if (currentRawText) {
+                    entries = [];
+                    filteredData = [];
+                    initColumnFilters();
+                    document.getElementById('tableFilters').innerHTML = '';
+                    startParsing(currentRawText, currentFileName, currentEncoding || 'utf-8');
+                }
             }
         }
     } catch (err) {
@@ -534,6 +574,28 @@ async function openFile() {
 
 
 
+function readFile(file) {
+    if (!file) return;
+    if (window.electronAPI && window.electronAPI.openAndReadFile && file.path) {
+        logToFile('info', 'File dropped, using streaming reader.', { path: file.path });
+        window.electronAPI.openAndReadFile(file.path);
+    } else {
+        logToFile('info', 'File dropped, using browser FileReader (fallback).');
+        showLoadingState(file.name);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            logToFile('info', 'File read from drop event (fallback).');
+            processText(e.target.result, file.name);
+        };
+        reader.onerror = () => {
+            const err = reader.error;
+            showErrorToast(`File reading error: ${err.name}`, err.message);
+            logToFile('error', 'FileReader failed on drop', err);
+        };
+        reader.readAsText(file);
+    }
+}
+
 async function doPaste() {
     try {
         const text = await navigator.clipboard.readText();
@@ -570,7 +632,7 @@ function processText(text, name) {
 }
 
 async function refreshAnalysis() {
-    if (!currentRawText || !currentFileName) { alert('분석된 파일이 없습니다.'); return; }
+    if (!currentFileName) { alert('분석된 파일이 없습니다.'); return; }
     if (isAnalyzing) { alert('현재 분석 중입니다.'); return; }
     if (window.electronAPI && window.electronAPI.loadConfig) {
         const nc = await window.electronAPI.loadConfig();
@@ -579,7 +641,121 @@ async function refreshAnalysis() {
     }
     initColumnFilters();
     document.getElementById('tableFilters').innerHTML = '';
-    startParsing(currentRawText, currentFileName, currentEncoding || 'utf-8');
+    
+    if (currentFilePath && window.electronAPI && window.electronAPI.openAndReadFile) {
+        window.electronAPI.openAndReadFile(currentFilePath);
+    } else if (currentRawText) {
+        startParsing(currentRawText, currentFileName, currentEncoding || 'utf-8');
+    }
+}
+
+// ── Streaming Parsing ──
+function prepareStreamingParsing(name, enc, fileSize) {
+    entries = [];
+    parseInterrupt = false;
+    isAnalyzing = true;
+    sortCol = null;
+    sortDir = 'asc';
+    sortState = {};
+    const searchBox = document.getElementById('searchBox');
+    if (searchBox) searchBox.value = '';
+    initColumnFilters();
+    showProgress(name, enc);
+
+    streamLineBuffer = "";
+    streamLineCount = 0;
+    streamFoundCount = 0;
+    streamMatchedCount = 0;
+    streamBlockBuffer = [];
+    streamBlockLineNumbers = [];
+    streamInBlock = false;
+    streamStartPatterns = new RegExp(CONFIG.start_patterns.join('|'));
+    streamEndPatterns = new RegExp(CONFIG.end_patterns.join('|'));
+    streamTotalBytes = fileSize || 0;
+    streamBytesProcessed = 0;
+}
+
+function handleStreamingChunk(chunkData) {
+    if (parseInterrupt) {
+        if (window.electronAPI && window.electronAPI.cancelFileRead) {
+            window.electronAPI.cancelFileRead();
+        }
+        return;
+    }
+    
+    const text = typeof chunkData === 'string' ? chunkData : chunkData.text;
+    const byteLength = typeof chunkData === 'string' ? 0 : chunkData.byteLength;
+    
+    streamBytesProcessed += byteLength;
+    streamLineBuffer += text;
+    const lines = streamLineBuffer.split(/\r?\n|\r/);
+    
+    // Keep the last partial line in the buffer
+    streamLineBuffer = lines.pop();
+    
+    if (lines.length > 0) {
+        processStreamLines(lines);
+    }
+}
+
+function processStreamLines(lines) {
+    for (const line of lines) {
+        streamLineCount++;
+        const t = line.trim();
+        if (!t) continue;
+
+        const isS = streamStartPatterns.test(t);
+        const isE = streamEndPatterns.test(t);
+
+        if (isS) {
+            if (streamInBlock && streamBlockBuffer.length > 0) {
+                const entry = parseBlock(streamBlockBuffer, streamBlockLineNumbers);
+                entries.push(entry);
+                streamFoundCount++;
+                streamMatchedCount += streamBlockBuffer.length;
+                streamBlockBuffer = [];
+                streamBlockLineNumbers = [];
+                streamInBlock = false;
+            }
+            streamBlockBuffer = [t];
+            streamBlockLineNumbers = [streamLineCount];
+            streamInBlock = true;
+        } else if (isE && streamInBlock) {
+            streamBlockBuffer.push(t);
+            streamBlockLineNumbers.push(streamLineCount);
+            const entry = parseBlock(streamBlockBuffer, streamBlockLineNumbers);
+            entries.push(entry);
+            streamFoundCount++;
+            streamMatchedCount += streamBlockBuffer.length;
+            streamBlockBuffer = [];
+            streamBlockLineNumbers = [];
+            streamInBlock = false;
+        } else if (streamInBlock) {
+            streamBlockBuffer.push(t);
+            streamBlockLineNumbers.push(streamLineCount);
+        }
+    }
+    
+    // Throttle UI updates for performance if needed, but for now update every chunk
+    updateProgress(streamBytesProcessed, streamTotalBytes, streamFoundCount, streamMatchedCount);
+}
+
+function finishStreamingParsing() {
+    // Process remaining line in buffer
+    if (streamLineBuffer) {
+        processStreamLines([streamLineBuffer]);
+        streamLineBuffer = "";
+    }
+
+    // Process remaining block
+    if (streamInBlock && streamBlockBuffer.length > 0) {
+        const entry = parseBlock(streamBlockBuffer, streamBlockLineNumbers);
+        entries.push(entry);
+        streamFoundCount++;
+        streamMatchedCount += streamBlockBuffer.length;
+    }
+
+    finishParsing();
 }
 
 // ── Parsing Logic ──
@@ -752,9 +928,16 @@ function showProgress(name, enc) {
 }
 
 function updateProgress(processed, total, found, matched) {
-    const pct = (processed / total * 100).toFixed(1);
+    const pct = total > 0 ? (processed / total * 100).toFixed(1) : 0;
     document.getElementById('progressBar').style.width = pct + '%';
-    document.getElementById('progressCount').textContent = `${processed.toLocaleString()} / ${total.toLocaleString()} lines`;
+    
+    // If we're using bytes for processed/total, show them in MB
+    if (total > 1000000) {
+        document.getElementById('progressCount').textContent = `${(processed / 1024 / 1024).toFixed(1)} MB / ${(total / 1024 / 1024).toFixed(1)} MB`;
+    } else {
+        document.getElementById('progressCount').textContent = `${processed.toLocaleString()} / ${total.toLocaleString()} lines`;
+    }
+    
     document.getElementById('progFound').textContent = found;
     document.getElementById('progMatched').textContent = matched;
     if (streamingMode) {
@@ -1068,11 +1251,13 @@ async function displayDetailWindow(data) {
             logFilePath: currentFilePath, 
             utterance: e.utterance 
         });
+        logToFile('info', `Fetched ${screenshots ? screenshots.length : 0} screenshots for utterance: "${e.utterance}"`);
         if (screenshots && screenshots.length > 0) {
             h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:8px">';
             screenshots.forEach((ss, idx) => {
                 const ssId = `ss_${idx}_${Date.now()}`;
-                h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:all 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#1e2433'">
+                const escapedPath = ss.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:all 0.2s" onclick="showScreenshotViewer('${escapedPath}')" title="${esc(ss.name)}" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#1e2433'">
                     <img id="${ssId}" src="" alt="Thumbnail" style="width:100%;height:100%;object-fit:cover;display:none">
                     <div id="${ssId}_icon" style="font-size:24px;opacity:0.5">🖼</div>
                 </div>`;
@@ -1155,11 +1340,13 @@ async function showDetail(idx) {
             logFilePath: currentFilePath, 
             utterance: e.utterance 
         });
+        logToFile('info', `Fetched ${screenshots ? screenshots.length : 0} screenshots for utterance: "${e.utterance}"`);
         if (screenshots && screenshots.length > 0) {
             h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:8px">';
             screenshots.forEach((ss, idx) => {
                 const ssId = `ss_${idx}_${Date.now()}`;
-                h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:all 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#1e2433'">
+                const escapedPath = ss.path.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:all 0.2s" onclick="showScreenshotViewer('${escapedPath}')" title="${esc(ss.name)}" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#1e2433'">
                     <img id="${ssId}" src="" alt="Thumbnail" style="width:100%;height:100%;object-fit:cover;display:none">
                     <div id="${ssId}_icon" style="font-size:24px;opacity:0.5">🖼</div>
                 </div>`;
