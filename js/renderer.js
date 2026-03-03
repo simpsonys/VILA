@@ -22,7 +22,7 @@ let detailWindows = []; // track open detail windows
 let parseInterrupt = false; // flag to interrupt parsing
 let isDetailWindow = false; // track if this window is a detail display
 let currentDetailData = null; // holds utterance data if this is a detail window
-let streamingMode = false; // streaming analysis mode (false = wait until complete, true = show results in real-time)
+let streamingMode = true; // streaming analysis mode (false = wait until complete, true = show results in real-time)
 let currentConfigFileName = null; // currently active preset config filename
 
 // ── Logging ──
