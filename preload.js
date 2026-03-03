@@ -2,8 +2,6 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   loadConfig: () => ipcRenderer.invoke("load-config"),
-  listPresets: () => ipcRenderer.invoke('list-presets'), // New
-  loadSpecificConfig: (fileName) => ipcRenderer.invoke('load-specific-config', fileName), // New
   openConfigFolder: () => ipcRenderer.invoke("open-config-folder"),
   openFileDialog: () => ipcRenderer.invoke("open-file-dialog"),
   readFileBuffer: (filePath) => ipcRenderer.invoke("read-file-buffer", filePath),
@@ -14,6 +12,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
   openDetailWindow: (data) => ipcRenderer.invoke("open-detail-window", data),
   onSetUtteranceData: (callback) => ipcRenderer.on("set-utterance-data", (event, data) => callback(data)),
+  
+  // Preset management
+  listPresets: () => ipcRenderer.invoke("list-presets"),
+  switchPreset: (fileName) => ipcRenderer.invoke("switch-preset", fileName),
+  addCustomPreset: () => ipcRenderer.invoke("add-custom-preset"),
   
   // Auto-update methods
   checkUpdates: () => ipcRenderer.invoke("check-updates"),

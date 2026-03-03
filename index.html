@@ -152,7 +152,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
     <div class="preset-bar" id="presetBar" style="display:flex;align-items:center;gap:15px;margin-top:5px;padding-top:5px;border-top:1px solid #1e2433;width:100%">
       <span class="preset-label" style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase">Preset:</span>
       <div class="radio-group" id="presetRadios" style="display:flex;align-items:center;gap:12px"></div>
-      <button class="config-btn" onclick="openConfigFolder()" style="margin-left:10px">+ Custom Preset</button>
+      <button class="config-btn" onclick="addCustomPreset()" style="margin-left:10px">+ Custom Preset</button>
     </div>
   </div>
   
@@ -327,6 +327,7 @@ let parseInterrupt = false; // flag to interrupt parsing
 let isDetailWindow = false; // track if this window is a detail display
 let currentDetailData = null; // holds utterance data if this is a detail window
 let streamingMode = false; // streaming analysis mode (false = wait until complete, true = show results in real-time)
+let currentConfigFileName = null; // currently active preset config filename
 
 // ── Error Toast System ──
 let errorToastId = 0;
@@ -497,6 +498,12 @@ async function init() {
     document.getElementById('presetRadios').innerHTML = '<span style="font-size:11px;color:#64748b">Not in Electron mode</span>';
   }
 
+  // Fallback: ensure CONFIG is never null
+  if (!CONFIG) {
+    CONFIG = getDefaultConfig();
+    console.log("Using default config (fallback)");
+  }
+
   setupEventListeners();
 }
 
@@ -532,7 +539,65 @@ async function refreshPresetList() {
   });
 }
 
-// ... (나머지 switchPreset, updatePresetRadioSelection 등 함수는 그대로 유지)
+// Switch to a different preset config
+async function switchPreset(fileName) {
+  if (!window.electronAPI || !window.electronAPI.switchPreset) {
+    showErrorToast('switchPreset API not available');
+    return;
+  }
+  try {
+    const result = await window.electronAPI.switchPreset(fileName);
+    if (result && result.config) {
+      CONFIG = result.config;
+      currentConfigFileName = result.fileName || fileName;
+      updatePresetRadioSelection(currentConfigFileName);
+      console.log('Switched to preset:', currentConfigFileName);
+      
+      // Re-analyze current file if loaded
+      if (currentRawText && currentFileName) {
+        entries = [];
+        filteredData = [];
+        initColumnFilters();
+        document.getElementById('tableFilters').innerHTML = '';
+        startParsing(currentRawText, currentFileName, currentEncoding || 'utf-8');
+      }
+    }
+  } catch (err) {
+    console.error('Failed to switch preset:', err);
+    showErrorToast('Failed to switch preset: ' + err.message);
+  }
+}
+
+// Update radio button selection to match current config
+function updatePresetRadioSelection(fileName) {
+  if (!fileName) return;
+  const radios = document.querySelectorAll('input[name="presetConfig"]');
+  radios.forEach(radio => {
+    radio.checked = (radio.value === fileName);
+  });
+}
+
+// Add custom preset via file dialog
+async function addCustomPreset() {
+  if (!window.electronAPI || !window.electronAPI.addCustomPreset) {
+    showErrorToast('Custom preset feature requires the Electron desktop version.');
+    return;
+  }
+  try {
+    const result = await window.electronAPI.addCustomPreset();
+    if (result && result.success) {
+      console.log('Custom preset added:', result.fileName);
+      await refreshPresetList();
+      // Auto-switch to the newly added preset
+      if (result.fileName) {
+        await switchPreset(result.fileName);
+      }
+    }
+  } catch (err) {
+    console.error('Failed to add custom preset:', err);
+    showErrorToast('Failed to add custom preset: ' + err.message);
+  }
+}
 
 
 function getDefaultConfig() {
@@ -749,7 +814,8 @@ async function refreshAnalysis() {
   if (isAnalyzing) { alert('현재 분석 중입니다.'); return; }
   if (window.electronAPI && window.electronAPI.loadConfig) {
     const nc = await window.electronAPI.loadConfig();
-    if (nc) CONFIG = nc;
+    if (nc && nc.config) { CONFIG = nc.config; currentConfigFileName = nc.fileName; }
+    else if (nc) CONFIG = nc;
   }
   initColumnFilters();
   document.getElementById('tableFilters').innerHTML = '';
