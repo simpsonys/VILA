@@ -1,10 +1,10 @@
 {
   "start_patterns": [
     "cmd_from_mockapp",
-    "REQUEST OPEN SERVER"
+    "GRPC OPEN IN"
   ],
   "end_patterns": [
-    "Process Finished!"
+    "GRPC CLOSE OUT"
   ],
   "success_patterns": [
     "result_code=success"
@@ -19,15 +19,16 @@
       "pattern": "requestId\\[([^\\]]+)\\]",
       "url_template": null,
       "display_name": "RequestID"
+    },
+    "capsuleGoal": {
+      "pattern": "setExecutionCapsuleGoal\\(\\d+\\) > ([^\\s\\n\\r]+)",
+      "url_template": null,
+      "display_name": "Capsule Goal"
     }
   },
   "utterance_patterns": {
-    "cmd_from_mockapp": {
-      "pattern": "cmd_from_mockapp, ([^\\]]+)",
-      "utterance": "{value}"
-    },
     "kAsr2Response": {
-      "pattern": "kAsr2Response \\[FINAL\\] \\[([^\\]]+)\\]",
+      "pattern": "SetCmdAllResult\\(\\d+\\) > ([^\\s\\n\\r]+)",
       "utterance": "{value}"
     }
   },
@@ -41,9 +42,17 @@
     "Actions": {
       "name": "Action",
       "patterns": [
-		"PROCESS ACTION URL",
+		    "PROCESS ACTION URL",
         "result_code"
       ]
     }
-  }
+  },
+  "table_columns": [
+    { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId" },
+    { "key": "requestId", "label": "Request ID", "width": "12%" },
+    { "key": "capsuleGoal", "label": "Capsule Goal", "width": "12%" },
+    { "key": "utterance", "label": "Utterance", "width": "28%", "type": "utterance" },
+    { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
+    { "key": "successLine", "label": "Success Match", "width": "20%", "type": "log" }
+  ]
 }

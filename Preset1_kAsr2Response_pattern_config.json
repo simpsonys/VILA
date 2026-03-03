@@ -21,6 +21,11 @@
       "pattern": "requestId\\[([^\\]]+)\\]",
       "url_template": null,
       "display_name": "RequestID"
+    },
+    "capsuleGoal": {
+      "pattern": "setExecutionCapsuleGoal\\(\\d+\\) > ([^\\s\\n\\r]+)",
+      "url_template": null,
+      "display_name": "Capsule Goal"
     }
   },
   "utterance_patterns": {
@@ -64,11 +69,11 @@
     }
   },
   "table_columns": [
-    { "key": "conversationId", "label": "Conversation ID", "width": "22%", "clickable_key": "conversationId" },
+    { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId" },
     { "key": "requestId", "label": "Request ID", "width": "12%" },
-    { "key": "utterance", "label": "Utterance", "width": "22%", "type": "utterance" },
-    { "key": "CapsuleGoal", "label": "CapsuleGoal", "width": "8%", "type": "log" },
+    { "key": "capsuleGoal", "label": "Capsule Goal", "width": "12%" },
+    { "key": "utterance", "label": "Utterance", "width": "28%", "type": "utterance" },
     { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
-    { "key": "successLine", "label": "Success Match", "width": "28%", "type": "log" }
+    { "key": "successLine", "label": "Success Match", "width": "20%", "type": "log" }
   ]
 }

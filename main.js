@@ -17,7 +17,10 @@ function getConfigPath() {
 }
 
 function ensureConfig() {
-  const configPath = getConfigPath();
+  const userDataPath = app.getPath("userData");
+  const configPath = path.join(userDataPath, CONFIG_NAME);
+  
+  // 1. Ensure default pattern_config.json
   if (!fs.existsSync(configPath)) {
     const defaultPath = path.join(__dirname, "default_config.json");
     if (fs.existsSync(defaultPath)) {
@@ -25,6 +28,23 @@ function ensureConfig() {
       console.log("Created default config at:", configPath);
     }
   }
+
+  // 2. Copy bundled presets to userData if they don't exist
+  try {
+    const bundledFiles = fs.readdirSync(__dirname);
+    const bundledPresets = bundledFiles.filter(f => /^Preset\d+_.+_pattern_config\.json$/.test(f));
+    
+    bundledPresets.forEach(file => {
+      const destPath = path.join(userDataPath, file);
+      if (!fs.existsSync(destPath)) {
+        fs.copyFileSync(path.join(__dirname, file), destPath);
+        console.log("Copied bundled preset:", file);
+      }
+    });
+  } catch (err) {
+    console.error("Failed to copy bundled presets:", err);
+  }
+
   return configPath;
 }
 
@@ -46,7 +66,7 @@ function createWindow() {
   win.setMenuBarVisibility(false);
   // open developer tools automatically (helps diagnose startup issues)
   // This will detach so the main window is unobstructed.
-  win.webContents.openDevTools({ mode: 'detach' });
+  // win.webContents.openDevTools({ mode: 'detach' });
   win.loadFile("index.html");
 }
 
