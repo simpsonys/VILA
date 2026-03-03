@@ -528,6 +528,11 @@ function startParsing(text, name, enc) {
     initColumnFilters();
     showProgress(name, enc);
 
+    const SDB_NEWLINE_MARKER = /\\nL\\d{1,5}/g;
+    if (text.includes("nL")) {
+        text = text.replace(SDB_NEWLINE_MARKER, "\\n");
+    }
+
     const lines = text.split(/\r?\n|\r/), total = lines.length;
     const startCombined = new RegExp(CONFIG.start_patterns.join('|'));
     const endCombined = new RegExp(CONFIG.end_patterns.join('|'));
