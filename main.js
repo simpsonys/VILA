@@ -215,14 +215,9 @@ ipcMain.handle("open-config-folder", async () => {
   shell.showItemInFolder(configPath);
 });
 
-// IPC: Read file with encoding detection
-ipcMain.handle("read-file-buffer", async (event, filePath) => {
-  const buffer = fs.readFileSync(filePath);
-  return buffer;
-});
-
-// IPC: Open file dialog
-ipcMain.handle("open-file-dialog", async () => {
+// IPC: Open file dialog, read content, and send to renderer
+ipcMain.handle("open-and-read-file", async (event) => {
+  writeToLog('info', 'File open dialog initiated by renderer.');
   const result = await dialog.showOpenDialog({
     properties: ["openFile"],
     filters: [
@@ -230,8 +225,45 @@ ipcMain.handle("open-file-dialog", async () => {
       { name: "All Files", extensions: ["*"] },
     ],
   });
-  if (result.canceled) return null;
-  return result.filePaths[0];
+
+  if (result.canceled || !result.filePaths[0]) {
+    writeToLog('info', 'File open dialog canceled.');
+    return { success: false, reason: 'Canceled' };
+  }
+
+  const filePath = result.filePaths[0];
+  const fileName = path.basename(filePath);
+  writeToLog('info', `File selected: ${filePath}`);
+
+  try {
+    const buffer = fs.readFileSync(filePath);
+    writeToLog('info', `File read into buffer. Size: ${buffer.length} bytes.`);
+    
+    // Encoding detection can be part of a utility function if needed elsewhere
+    const jschardet = require('jschardet');
+    const detected = jschardet.detect(buffer);
+    const encoding = detected.encoding || 'utf-8';
+    writeToLog('info', `Detected encoding: ${encoding} with confidence: ${detected.confidence}`);
+
+    const { TextDecoder } = require('util');
+    const decoder = new TextDecoder(encoding);
+    const content = decoder.decode(buffer);
+    writeToLog('info', `File decoded successfully. Content length: ${content.length}`);
+
+    // Send the content back to the renderer
+    event.sender.send('file-content-loaded', {
+      success: true,
+      filePath,
+      fileName,
+      encoding,
+      content
+    });
+    return { success: true };
+
+  } catch (err) {
+    writeToLog('error', 'Error reading or decoding file in main process.', err);
+    return { success: false, reason: err.message, stack: err.stack };
+  }
 });
 
 // IPC: Save export files with custom filename (Save As dialog)

@@ -133,7 +133,26 @@ async function init() {
     if (savedStreamingMode !== null) streamingMode = savedStreamingMode === 'true';
     updateModeButtons();
 
+// In init()
     if (window.electronAPI) {
+        // Listen for file content loaded from the main process
+        if (window.electronAPI.onFileContentLoaded) {
+            window.electronAPI.onFileContentLoaded((data) => {
+                if (data.success) {
+                    logToFile('info', 'File content received from main process.', { fileName: data.fileName });
+                    currentFilePath = data.filePath;
+                    currentFileName = data.fileName;
+                    currentRawText = data.content;
+                    currentEncoding = data.encoding;
+                    currentFilePath_base = data.fileName.replace(/\.[^.]*$/, '');
+                    
+                    startParsing(data.content, data.fileName, data.encoding);
+                } else {
+                    showErrorToast(`Failed to load file: ${data.reason}`, data.stack);
+                }
+            });
+        }
+        
         // 2. 버전 정보 로드
         if (window.electronAPI.getAppVersion) {
             APP_VERSION = await window.electronAPI.getAppVersion();
@@ -467,55 +486,44 @@ function updateLoadingState(message) {
 }
 // ── File Reading ──
 async function openFile() {
-    if (window.electronAPI) {
-        const filePath = await window.electronAPI.openFileDialog();
-        if (filePath) {
-            if (isAnalyzing) {
-                const shouldContinue = confirm('Analysis in progress. Cancel and open new file?');
-                if (!shouldContinue) return;
-                parseInterrupt = true;
-            }
-            const name = filePath.split(/[\\\/]/).pop();
-            showLoadingState(name); // Show loading state immediately
+    if (isAnalyzing) {
+        const shouldContinue = confirm('Analysis in progress. Cancel and open new file?');
+        if (!shouldContinue) return;
+        parseInterrupt = true;
+    }
 
-            try {
-                // Yield to UI thread before reading buffer
-                await new Promise(resolve => setTimeout(resolve, 50));
-                
-                const buffer = await window.electronAPI.readFileBuffer(filePath);
-                const baseName = name.replace(/\.[^.]*$/, '');
-                currentFilePath = filePath;
-                currentFilePath_base = baseName;
-                processBuffer(new Uint8Array(buffer).buffer, name);
-            } catch (err) {
-                showErrorToast(`Failed to read file: ${err.message}`, err.stack);
-                // Do not reset, allow user to see the error
-            }
+    if (window.electronAPI && window.electronAPI.openAndReadFile) {
+        logToFile('info', 'Requesting main process to open file dialog.');
+        showLoadingState("..."); // Show a generic loading state
+        updateLoadingState('Waiting for file selection...');
+        const result = await window.electronAPI.openAndReadFile();
+        if (!result.success && result.reason !== 'Canceled') {
+            showErrorToast(`Error during file open: ${result.reason}`, result.stack);
         }
     } else {
+        // Fallback for non-electron environment (won't work well with large files)
+        logToFile('warn', 'Non-Electron environment, using browser file reader.');
         const input = document.createElement('input');
-        input.type = 'file'; input.accept = '.log,.txt,.text';
-        input.onchange = () => { if (input.files[0]) readFile(input.files[0]); };
+        input.type = 'file';
+        input.accept = '.log,.txt,.text';
+        input.onchange = () => {
+            if (input.files[0]) {
+                const file = input.files[0];
+                showLoadingState(file.name);
+                const reader = new FileReader();
+                reader.onload = e => {
+                    logToFile('info', 'File read with browser FileReader.');
+                    processText(e.target.result, file.name)
+                };
+                reader.onerror = err => showErrorToast(`File reading error: ${err.message}`, err.stack);
+                reader.readAsText(file);
+            }
+        };
         input.click();
     }
 }
 
-function readFile(file) {
-    showLoadingState(file.name); // Show loading state immediately
-    
-    if (file.path) {
-        currentFilePath = file.path;
-        currentFilePath_base = file.name.replace(/\.[^.]*$/, '');
-    }
-    
-    const reader = new FileReader();
-    reader.onload = e => processBuffer(e.target.result, file.name);
-    reader.onerror = err => {
-        showErrorToast(`File reading error: ${err.message}`, err.stack);
-        // Do not reset
-    };
-    reader.readAsArrayBuffer(file);
-}
+
 
 async function doPaste() {
     try {
@@ -530,52 +538,14 @@ async function doPaste() {
     }
 }
 
-function detectEncoding(buffer) {
-    const b = new Uint8Array(buffer);
-    if (b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) return 'utf-8';
-    if (b[0] === 0xFF && b[1] === 0xFE) return 'utf-16le';
-    if (b[0] === 0xFE && b[1] === 0xFF) return 'utf-16be';
-    let ok = true;
-    for (let i = 0; i < Math.min(b.length, 8000); i++) {
-        if (b[i] > 0x7F) {
-            if ((b[i] & 0xE0) === 0xC0) { if (i + 1 >= b.length || (b[i + 1] & 0xC0) !== 0x80) { ok = false; break; } i++; }
-            else if ((b[i] & 0xF0) === 0xE0) { if (i + 2 >= b.length || (b[i + 1] & 0xC0) !== 0x80 || (b[i + 2] & 0xC0) !== 0x80) { ok = false; break; } i += 2; }
-            else if ((b[i] & 0xF8) === 0xF0) { if (i + 3 >= b.length) { ok = false; break; } i += 3; }
-            else { ok = false; break; }
-        }
-    }
-    return ok ? 'utf-8' : 'euc-kr';
-}
+
 
 function stripTs(line) {
     const m = line.match(/[A-Z]\/[\w]+\s*\(\s*\d+\)\s*:/);
     return m ? line.substring(m.index) : line;
 }
 
-function processBuffer(buffer, name) {
-    try {
-        updateLoadingState("Detecting encoding...");
-        const enc = detectEncoding(buffer);
-        updateLoadingState(`Decoding file (${enc.toUpperCase()})...`);
-        
-        setTimeout(() => {
-            try {
-                const text = new TextDecoder(enc).decode(buffer);
-                currentEncoding = enc;
-                currentFileName = name;
-                currentRawText = text;
-                startParsing(text, name, enc);
-            } catch (e) {
-                showErrorToast(`Failed to decode file. Try a different encoding if possible. Error: ${e.message}`, e.stack);
-                // Do not reset
-            }
-        }, 50);
 
-    } catch (e) {
-        showErrorToast(`Failed to process file buffer: ${e.message}`, e.stack);
-        // Do not reset
-    }
-}
 
 function processText(text, name) {
     try {
