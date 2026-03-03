@@ -317,9 +317,15 @@ ipcMain.handle("get-screenshots", async (event, args) => {
   const logFilePath = typeof args === 'string' ? args : args.logFilePath;
   const utterance = typeof args === 'string' ? null : args.utterance;
 
-  if (!logFilePath) return [];
+  writeToLog('info', 'get-screenshots called', { logFilePath, utterance });
+
+  if (!logFilePath) {
+    writeToLog('warn', 'get-screenshots: logFilePath is missing.');
+    return [];
+  }
   try {
     const dirPath = path.dirname(logFilePath);
+    writeToLog('info', `get-screenshots: Searching for screenshot folder in: ${dirPath}`);
     
     // Check for various screenshot folder names (case-insensitive search)
     const possibleNames = ["screenshot", "screenShot", "screenshots", "ScreenShot", "ScreenShots"];
@@ -329,11 +335,13 @@ ipcMain.handle("get-screenshots", async (event, args) => {
       const p = path.join(dirPath, name);
       if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
         screenshotDir = p;
+        writeToLog('info', `get-screenshots: Found screenshot folder: ${screenshotDir}`);
         break;
       }
     }
 
     if (!screenshotDir) {
+      writeToLog('warn', 'get-screenshots: No standard screenshot folder found. Falling back to directory scan.');
       // Fallback: search directory for any folder that looks like screenshots
       try {
         const items = fs.readdirSync(dirPath);
@@ -342,16 +350,23 @@ ipcMain.handle("get-screenshots", async (event, args) => {
             const p = path.join(dirPath, item);
             if (fs.statSync(p).isDirectory()) {
               screenshotDir = p;
+              writeToLog('info', `get-screenshots: Found screenshot folder via fallback scan: ${screenshotDir}`);
               break;
             }
           }
         }
-      } catch (e) {}
+      } catch (e) {
+        writeToLog('error', 'get-screenshots: Error during fallback directory scan.', e);
+      }
     }
 
-    if (!screenshotDir) return [];
+    if (!screenshotDir) {
+        writeToLog('warn', 'get-screenshots: No screenshot directory found anywhere.');
+        return [];
+    }
     
     const files = fs.readdirSync(screenshotDir);
+    writeToLog('info', `get-screenshots: Found ${files.length} files in screenshot directory.`);
     
     // Filter files: start with "발화_" or contain the utterance string
     const utteranceFiles = files.filter(f => {
@@ -379,11 +394,14 @@ ipcMain.handle("get-screenshots", async (event, args) => {
       return a.localeCompare(b);
     });
     
+    writeToLog('info', `get-screenshots: Filtered down to ${utteranceFiles.length} matching screenshots.`);
+
     return utteranceFiles.map(f => ({
       name: f,
       path: path.join(screenshotDir, f)
     }));
   } catch (e) {
+    writeToLog('error', "get-screenshots: A critical error occurred.", e);
     console.error("Failed to get screenshots:", e);
     return [];
   }

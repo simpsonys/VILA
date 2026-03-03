@@ -585,9 +585,12 @@ function startParsing(text, name, enc) {
     initColumnFilters();
     showProgress(name, enc);
 
-    const SDB_NEWLINE_MARKER = /\\nL\\d{1,5}/g;
-    if (text.includes("nL")) {
-        text = text.replace(SDB_NEWLINE_MARKER, "\\n");
+    // SDB logs sometimes insert a literal newline followed by 'L' and a line number.
+    // This pre-processing step normalizes these into standard newlines.
+    const SDB_NEWLINE_MARKER = /\nL\d{1,5}\s/g;
+    if (text.includes("\nL")) {
+        logToFile('info', 'SDB newline marker (\\nL[number]) detected. Normalizing newlines.');
+        text = text.replace(SDB_NEWLINE_MARKER, "\n");
     }
 
     const lines = text.split(/\r?\n|\r/), total = lines.length;
