@@ -25,7 +25,7 @@
   },
   "utterance_patterns": {
     "kAsr2Response": {
-      "pattern": "kAsr2Response \\[FINAL\\] \\[([^\\]]+)\\]",
+      "pattern": "kAsr2Response \\[FINAL\\]\\[([^\\]]+)\\]",
       "utterance": "{value}"
     }
   },
