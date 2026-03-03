@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   readFileBuffer: (filePath) => ipcRenderer.invoke("read-file-buffer", filePath),
   saveExport: (data) => ipcRenderer.invoke("save-export", data),
   getAppVersion: () => ipcRenderer.invoke("get-version"),
-  getScreenshots: (logFilePath) => ipcRenderer.invoke("get-screenshots", logFilePath),
+  getScreenshots: (args) => ipcRenderer.invoke("get-screenshots", args),
   readScreenshot: (filePath) => ipcRenderer.invoke("read-screenshot", filePath),
   openExternal: (url) => ipcRenderer.invoke("open-external", url),
   openDetailWindow: (data) => ipcRenderer.invoke("open-detail-window", data),

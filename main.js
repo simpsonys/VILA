@@ -236,15 +236,71 @@ ipcMain.handle("get-version", () => {
 });
 
 // IPC: Get screenshots from log file directory
-ipcMain.handle("get-screenshots", async (event, logFilePath) => {
+ipcMain.handle("get-screenshots", async (event, args) => {
+  const logFilePath = typeof args === 'string' ? args : args.logFilePath;
+  const utterance = typeof args === 'string' ? null : args.utterance;
+
   if (!logFilePath) return [];
   try {
     const dirPath = path.dirname(logFilePath);
-    const screenshotDir = path.join(dirPath, "screenshot");
-    if (!fs.existsSync(screenshotDir)) return [];
+    
+    // Check for various screenshot folder names (case-insensitive search)
+    const possibleNames = ["screenshot", "screenShot", "screenshots", "ScreenShot", "ScreenShots"];
+    let screenshotDir = null;
+
+    for (const name of possibleNames) {
+      const p = path.join(dirPath, name);
+      if (fs.existsSync(p) && fs.statSync(p).isDirectory()) {
+        screenshotDir = p;
+        break;
+      }
+    }
+
+    if (!screenshotDir) {
+      // Fallback: search directory for any folder that looks like screenshots
+      try {
+        const items = fs.readdirSync(dirPath);
+        for (const item of items) {
+          if (item.toLowerCase() === "screenshot" || item.toLowerCase() === "screenshots") {
+            const p = path.join(dirPath, item);
+            if (fs.statSync(p).isDirectory()) {
+              screenshotDir = p;
+              break;
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
+    if (!screenshotDir) return [];
     
     const files = fs.readdirSync(screenshotDir);
-    const utteranceFiles = files.filter(f => /^발화_\d+\.png$/i.test(f)).sort();
+    
+    // Filter files: start with "발화_" or contain the utterance string
+    const utteranceFiles = files.filter(f => {
+      const nameLower = f.toLowerCase();
+      if (!nameLower.endsWith(".png")) return false;
+      if (nameLower.startsWith("발화_")) return true;
+      if (utterance) {
+        // Remove common non-filename characters and trim
+        const sanitizedUtt = utterance.toLowerCase().replace(/[:/\\?*<>|]/g, " ").replace(/\s+/g, " ").trim();
+        if (sanitizedUtt && nameLower.includes(sanitizedUtt)) return true;
+        
+        // Split utterance by spaces and check if first 2-3 words match
+        const parts = sanitizedUtt.split(' ').filter(p => p.length > 2);
+        if (parts.length >= 2) {
+            const partial = parts.slice(0, 3).join(' ');
+            if (nameLower.includes(partial)) return true;
+        }
+      }
+      return false;
+    }).sort((a, b) => {
+      // Improved sorting for filenames like "name_01.png" or "발화_1.png"
+      const numA = parseInt(a.match(/(\d+)\.png$/i)?.[1] || a.match(/(\d+)/)?.[0] || '0');
+      const numB = parseInt(b.match(/(\d+)\.png$/i)?.[1] || b.match(/(\d+)/)?.[0] || '0');
+      if (numA !== numB) return numA - numB;
+      return a.localeCompare(b);
+    });
     
     return utteranceFiles.map(f => ({
       name: f,
@@ -280,7 +336,8 @@ ipcMain.handle("open-external", async (event, url) => {
 });
 
 // IPC: Open detail window for utterance
-ipcMain.handle("open-detail-window", async (event, { utteranceData, utteranceIndex }) => {
+ipcMain.handle("open-detail-window", async (event, data) => {
+  const { utteranceIndex } = data;
   const detailWindow = new BrowserWindow({
     width: 900,
     height: 700,
@@ -295,12 +352,19 @@ ipcMain.handle("open-detail-window", async (event, { utteranceData, utteranceInd
     },
   });
   
+  detailWindows.push(detailWindow);
+
   detailWindow.webContents.once("ready-to-show", () => {
-    detailWindow.webContents.send("set-utterance-data", { utteranceData, utteranceIndex });
+    detailWindow.webContents.send("set-utterance-data", data);
   });
   
   detailWindow.loadFile("index.html");
   detailWindow.setMenuBarVisibility(false);
+
+  detailWindow.on("closed", () => {
+    detailWindows = detailWindows.filter(win => win !== detailWindow);
+  });
+
   return { windowId: detailWindow.id };
 });
 
@@ -333,53 +397,79 @@ ipcMain.handle("install-update", async () => {
 
 // Auto-updater event listeners
 let mainWindow;
+let detailWindows = []; // Track open detail windows
 
-app.whenReady().then(() => {
-  ensureConfig();
-  createWindow();
-  mainWindow = BrowserWindow.getAllWindows()[0];
+// ── Single Instance Lock ──
+const gotTheLock = app.requestSingleInstanceLock();
 
-  // Auto-updater events
-  autoUpdater.on("update-available", (info) => {
-    console.log("Update available:", info.version);
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, we should focus our window.
     if (mainWindow) {
-      mainWindow.webContents.send("update-available", info);
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
     }
   });
 
-  autoUpdater.on("update-not-available", (info) => {
-    console.log("No updates available");
-    if (mainWindow) {
-      mainWindow.webContents.send("update-not-available", info);
-    }
-  });
+  app.whenReady().then(() => {
+    ensureConfig();
+    createWindow();
+    mainWindow = BrowserWindow.getAllWindows()[0];
 
-  autoUpdater.on("error", (err) => {
-    console.error("Update error:", err);
-    if (mainWindow) {
-      mainWindow.webContents.send("update-error", err.message);
-    }
-  });
+    // Main window closing logic
+    mainWindow.on("closed", () => {
+      // Close all detail windows when main window is closed
+      detailWindows.forEach(win => {
+        if (!win.isDestroyed()) win.close();
+      });
+      detailWindows = [];
+      mainWindow = null;
+    });
 
-  autoUpdater.on("download-progress", (progressObj) => {
-    if (mainWindow) {
-      mainWindow.webContents.send("download-progress", progressObj);
-    }
-  });
+    // Auto-updater events
+    autoUpdater.on("update-available", (info) => {
+      console.log("Update available:", info.version);
+      if (mainWindow) {
+        mainWindow.webContents.send("update-available", info);
+      }
+    });
 
-  autoUpdater.on("update-downloaded", (info) => {
-    console.log("Update downloaded:", info.version);
-    if (mainWindow) {
-      mainWindow.webContents.send("update-downloaded", info);
-    }
-  });
+    autoUpdater.on("update-not-available", (info) => {
+      console.log("No updates available");
+      if (mainWindow) {
+        mainWindow.webContents.send("update-not-available", info);
+      }
+    });
 
-  autoUpdater.checkForUpdatesAndNotify();
+    autoUpdater.on("error", (err) => {
+      console.error("Update error:", err);
+      if (mainWindow) {
+        mainWindow.webContents.send("update-error", err.message);
+      }
+    });
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    autoUpdater.on("download-progress", (progressObj) => {
+      if (mainWindow) {
+        mainWindow.webContents.send("download-progress", progressObj);
+      }
+    });
+
+    autoUpdater.on("update-downloaded", (info) => {
+      console.log("Update downloaded:", info.version);
+      if (mainWindow) {
+        mainWindow.webContents.send("update-downloaded", info);
+      }
+    });
+
+    autoUpdater.checkForUpdatesAndNotify();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
   });
-});
+}
 
 // Update mainWindow reference when new window is created
 app.on("window-all-closed", () => {

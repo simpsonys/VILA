@@ -3,7 +3,7 @@
  */
 
 // ── State ──
-let CONFIG = null;
+let CONFIG = getDefaultConfig();
 let entries = [];
 let filteredData = [];
 let sortCol = null;
@@ -100,18 +100,29 @@ function changeZoom(delta) {
 
 // ── Initialization ──
 async function init() {
+    // 1. Detail View 이벤트 리스너 등록 (Race condition 방지를 위해 최상단으로 이동)
+    if (window.electronAPI && window.electronAPI.onSetUtteranceData) {
+        window.electronAPI.onSetUtteranceData((data) => {
+            console.log("Received utterance data for detail window");
+            isDetailWindow = true; // Mark as detail window
+            const loadingOverlay = document.getElementById('loadingOverlay');
+            if (loadingOverlay) loadingOverlay.classList.remove('active');
+            displayDetailWindow(data);
+        });
+    }
+
     const savedStreamingMode = localStorage.getItem('streamingMode');
     if (savedStreamingMode !== null) streamingMode = savedStreamingMode === 'true';
     updateModeButtons();
 
     if (window.electronAPI) {
-        // 1. 버전 정보 로드
+        // 2. 버전 정보 로드
         if (window.electronAPI.getAppVersion) {
             APP_VERSION = await window.electronAPI.getAppVersion();
             document.getElementById('appSub').textContent = `[${APP_VERSION}] by SimpsonYS`;
         }
 
-        // 2. 프리셋 목록 로드
+        // 3. 프리셋 목록 로드
         try {
             console.log("Refreshing preset list...");
             await refreshPresetList();
@@ -120,7 +131,7 @@ async function init() {
             document.getElementById('presetRadios').innerHTML = '<span style="color:red;font-size:11px">Error loading presets</span>';
         }
 
-        // 3. Config 로드
+        // 4. Config 로드
         try {
             const result = await window.electronAPI.loadConfig();
             if (result) {
@@ -133,16 +144,6 @@ async function init() {
             }
         } catch (err) {
             console.error("Error loading config:", err);
-        }
-
-        // 4. Detail View 이벤트 리스너 등록
-        if (window.electronAPI.onSetUtteranceData) {
-            window.electronAPI.onSetUtteranceData((data) => {
-                isDetailWindow = true; // Mark as detail window
-                const loadingOverlay = document.getElementById('loadingOverlay');
-                if (loadingOverlay) loadingOverlay.classList.remove('active');
-                displayDetailWindow(data);
-            });
         }
     } else {
         // 웹 브라우저 단독 실행 시 (Electron 아님)
@@ -441,6 +442,10 @@ async function openFile() {
 }
 
 function readFile(file) {
+    if (file.path) {
+        currentFilePath = file.path;
+        currentFilePath_base = file.name.replace(/\.[^.]*$/, '');
+    }
     const reader = new FileReader();
     reader.onload = e => processBuffer(e.target.result, file.name);
     reader.readAsArrayBuffer(file);
@@ -873,7 +878,7 @@ function openURLExternal(url) {
 
 function copyToClipboard(text) {
     const decoded = text.replace(/\\n/g, '\n');
-    const onDone = () => alert('내용이 클립보드에 복사되었습니다.');
+    const onDone = () => showToast('Copied to clipboard.');
     if (navigator.clipboard) {
         navigator.clipboard.writeText(decoded).then(onDone).catch(() => {
             const ta = document.createElement('textarea');
@@ -885,6 +890,26 @@ function copyToClipboard(text) {
     }
 }
 
+function showToast(message) {
+    let container = document.getElementById('toastContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toastContainer';
+        container.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none';
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.style.cssText = 'background:rgba(0,0,0,0.85);color:white;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:500;box-shadow:0 4px 12px rgba(0,0,0,0.5);animation:fadeInOut 1s ease-in-out forwards;border:1px solid #333';
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.remove();
+        if (container.children.length === 0) container.remove();
+    }, 1000);
+}
+
 async function openDetailFromTable(idx) {
     const e = filteredData[idx];
     if (!e) return;
@@ -892,7 +917,12 @@ async function openDetailFromTable(idx) {
         showDetail(idx); return;
     }
     try {
-        await window.electronAPI.openDetailWindow({ utteranceData: e, utteranceIndex: idx + 1 });
+        await window.electronAPI.openDetailWindow({ 
+            utteranceData: e, 
+            utteranceIndex: idx + 1,
+            logFilePath: currentFilePath,
+            config: CONFIG
+        });
     } catch (err) {
         console.error("Failed to open detail window:", err);
         showDetail(idx);
@@ -900,7 +930,9 @@ async function openDetailFromTable(idx) {
 }
 
 async function displayDetailWindow(data) {
-    const { utteranceData: e, utteranceIndex } = data;
+    const { utteranceData: e, utteranceIndex, logFilePath: path, config } = data;
+    if (path) currentFilePath = path;
+    if (config) CONFIG = config;
     if (!e) return;
 
     const main = document.querySelector('.main');
@@ -910,6 +942,14 @@ async function displayDetailWindow(data) {
     if (header) {
         const exportBtn = header.querySelector('#exportBtn');
         if (exportBtn) exportBtn.style.display = 'none';
+        const refreshBtn = header.querySelector('#refreshBtn');
+        if (refreshBtn) refreshBtn.style.display = 'none';
+        const presetBar = header.querySelector('#presetBar');
+        if (presetBar) presetBar.style.display = 'none';
+        const updateBtn = header.querySelector('#updateBtn');
+        if (updateBtn) updateBtn.style.display = 'none';
+        const streamingLabel = header.querySelector('#streamingLabel');
+        if (streamingLabel) streamingLabel.style.display = 'none';
     }
 
     let h = `<div class="modal-body" style="max-width:none;height:100vh;display:flex;flex-direction:column;border-radius:0">`;
@@ -917,9 +957,13 @@ async function displayDetailWindow(data) {
     h += '<div class="modal-content" style="flex:1;overflow-y:auto"><div class="meta-grid">';
 
     [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
-        h += `<div class="meta-card"><div class="meta-label">${m.l}</div>`;
+        h += `<div class="meta-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="meta-label">${m.l}</div>`;
+        if (m.l === 'Conversation ID' && m.v) {
+            h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${m.v.replace(/'/g, "\\'")}')" title="Copy ID">📋 Copy</button>`;
+        }
+        h += '</div>';
         if (m.b) h += `<span class="badge badge-${m.v}">${m.v}</span>`;
-        else if (m.ck && CONFIG.clickable_patterns[m.ck] && CONFIG.clickable_patterns[m.ck].url_template && m.v)
+        else if (m.ck && CONFIG && CONFIG.clickable_patterns && CONFIG.clickable_patterns[m.ck] && CONFIG.clickable_patterns[m.ck].url_template && m.v)
             h += `<a href="${CONFIG.clickable_patterns[m.ck].url_template.replace('{value}', m.v)}" target="_blank" class="click-link" style="font-size:13px;font-family:Consolas,monospace;word-break:break-all" onclick="window.electronAPI.openExternal('${CONFIG.clickable_patterns[m.ck].url_template.replace('{value}', m.v)}');return false">${esc(m.v)}</a>`;
         else h += `<div class="meta-val">${esc(m.v)}</div>`;
         h += '</div>';
@@ -939,17 +983,48 @@ async function displayDetailWindow(data) {
     }
 
     if (window.electronAPI && currentFilePath) {
-        const screenshots = await window.electronAPI.getScreenshots(currentFilePath);
+        const screenshots = await window.electronAPI.getScreenshots({ 
+            logFilePath: currentFilePath, 
+            utterance: e.utterance 
+        });
         if (screenshots && screenshots.length > 0) {
-            h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin-top:8px">';
-            screenshots.forEach((ss) => {
-                h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:border 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}"><span style="font-size:24px;opacity:0.5">🖼</span></div>`;
+            h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:8px">';
+            screenshots.forEach((ss, idx) => {
+                const ssId = `ss_${idx}_${Date.now()}`;
+                h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:all 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#1e2433'">
+                    <img id="${ssId}" src="" alt="Thumbnail" style="width:100%;height:100%;object-fit:cover;display:none">
+                    <div id="${ssId}_icon" style="font-size:24px;opacity:0.5">🖼</div>
+                </div>`;
+                
+                // Load thumbnail asynchronously
+                setTimeout(async () => {
+                    try {
+                        const base64 = await window.electronAPI.readScreenshot(ss.path);
+                        const img = document.getElementById(ssId);
+                        const icon = document.getElementById(ssId + '_icon');
+                        if (img && base64) {
+                            img.src = `data:image/png;base64,${base64}`;
+                            img.style.display = 'block';
+                            if (icon) icon.style.display = 'none';
+                        }
+                    } catch (e) {
+                        console.error("Failed to load thumbnail:", e);
+                    }
+                }, 10);
             });
             h += '</div></div>';
         }
     }
 
-    h += `<div class="section"><div class="sec-title" style="color:#94a3b8">All Valid Logs (${e.allLines.length} lines)</div><div class="log-box">${e.allLines.map((l, i) => `<span style="color:#334155;min-width:30px;display:inline-block;text-align:right;margin-right:10px;user-select:none">${i + 1}</span>${makeClickable(stripTs(l))}`).join('<br>')}</div></div></div></div>`;
+    const allLogsText = e.allLines.map((l, i) => {
+        const ln = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
+        return `L${ln}  ${l}`;
+    }).join('\n');
+
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')">📋 Copy All</button></div><div class="log-box">${e.allLines.map((l, i) => {
+        const lineNum = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
+        return `<span style="color:#334155;min-width:40px;display:inline-block;text-align:right;margin-right:10px;user-select:none">L${lineNum}</span>${makeClickable(stripTs(l))}`;
+    }).join('<br>')}</div></div></div></div>`;
 
     let detailContainer = document.getElementById('detailWindowContainer');
     if (!detailContainer) {
@@ -969,9 +1044,13 @@ async function showDetail(idx) {
     h += '<div class="modal-content"><div class="meta-grid">';
 
     [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
-        h += `<div class="meta-card"><div class="meta-label">${m.l}</div>`;
+        h += `<div class="meta-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="meta-label">${m.l}</div>`;
+        if (m.l === 'Conversation ID' && m.v) {
+            h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${m.v.replace(/'/g, "\\'")}')" title="Copy ID">📋 Copy</button>`;
+        }
+        h += '</div>';
         if (m.b) h += `<span class="badge badge-${m.v}">${m.v}</span>`;
-        else if (m.ck && CONFIG.clickable_patterns[m.ck] && CONFIG.clickable_patterns[m.ck].url_template && m.v)
+        else if (m.ck && CONFIG && CONFIG.clickable_patterns && CONFIG.clickable_patterns[m.ck] && CONFIG.clickable_patterns[m.ck].url_template && m.v)
             h += `<a href="javascript:void(0)" onclick="openURLExternal('${CONFIG.clickable_patterns[m.ck].url_template.replace('{value}', m.v)}');event.stopPropagation();return false" class="click-link" style="font-size:13px;font-family:Consolas,monospace;word-break:break-all">${esc(m.v)}</a>`;
         else h += `<div class="meta-val">${esc(m.v)}</div>`;
         h += '</div>';
@@ -991,17 +1070,48 @@ async function showDetail(idx) {
     }
 
     if (window.electronAPI && currentFilePath) {
-        const screenshots = await window.electronAPI.getScreenshots(currentFilePath);
+        const screenshots = await window.electronAPI.getScreenshots({ 
+            logFilePath: currentFilePath, 
+            utterance: e.utterance 
+        });
         if (screenshots && screenshots.length > 0) {
-            h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:12px;margin-top:8px">';
-            screenshots.forEach((ss) => {
-                h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:border 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}"><span style="font-size:24px;opacity:0.5">🖼</span></div>`;
+            h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:8px">';
+            screenshots.forEach((ss, idx) => {
+                const ssId = `ss_${idx}_${Date.now()}`;
+                h += `<div style="cursor:pointer;border:1px solid #1e2433;border-radius:6px;overflow:hidden;aspect-ratio:1;background:#0a0d14;display:flex;align-items:center;justify-content:center;transition:all 0.2s" onclick="showScreenshotViewer('${ss.path.replace(/'/g, "\\'")}')" title="${esc(ss.name)}" onmouseover="this.style.borderColor='#a78bfa'" onmouseout="this.style.borderColor='#1e2433'">
+                    <img id="${ssId}" src="" alt="Thumbnail" style="width:100%;height:100%;object-fit:cover;display:none">
+                    <div id="${ssId}_icon" style="font-size:24px;opacity:0.5">🖼</div>
+                </div>`;
+                
+                // Load thumbnail asynchronously
+                setTimeout(async () => {
+                    try {
+                        const base64 = await window.electronAPI.readScreenshot(ss.path);
+                        const img = document.getElementById(ssId);
+                        const icon = document.getElementById(ssId + '_icon');
+                        if (img && base64) {
+                            img.src = `data:image/png;base64,${base64}`;
+                            img.style.display = 'block';
+                            if (icon) icon.style.display = 'none';
+                        }
+                    } catch (e) {
+                        console.error("Failed to load thumbnail:", e);
+                    }
+                }, 10);
             });
             h += '</div></div>';
         }
     }
 
-    h += `<div class="section"><div class="sec-title" style="color:#94a3b8">All Valid Logs (${e.allLines.length} lines)</div><div class="log-box">${e.allLines.map((l, i) => `<span style="color:#334155;min-width:30px;display:inline-block;text-align:right;margin-right:10px;user-select:none">${i + 1}</span>${makeClickable(stripTs(l))}`).join('<br>')}</div></div></div>`;
+    const allLogsText = e.allLines.map((l, i) => {
+        const ln = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
+        return `L${ln}  ${l}`;
+    }).join('\n');
+
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')">📋 Copy All</button></div><div class="log-box">${e.allLines.map((l, i) => {
+        const lineNum = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
+        return `<span style="color:#334155;min-width:40px;display:inline-block;text-align:right;margin-right:10px;user-select:none">L${lineNum}</span>${makeClickable(stripTs(l))}`;
+    }).join('<br>')}</div></div></div>`;
 
     document.getElementById('modalContent').innerHTML = h;
     document.getElementById('modal').classList.add('open');
@@ -1041,7 +1151,8 @@ async function doExport() {
     st.passRate = (st.success + st.fail) > 0 ? ((st.success / (st.success + st.fail)) * 100).toFixed(1) : '-';
     const data = entries.map(e => ({
         conversationId: e.conversationId, requestId: e.requestId, utterance: e.utterance, result: e.result,
-        successLine: e.successLine ? stripTs(e.successLine) : null, failLines: e.failLines.map(stripTs), allLines: e.allLines.map(stripTs),
+        successLine: e.successLine ? stripTs(e.successLine) : null, failLines: e.failLines.map(stripTs), 
+        allLines: e.allLines.map(stripTs), lineNumbers: e.lineNumbers,
         patternGroups: Object.fromEntries(Object.entries(e.patternGroups).map(([k, v]) => [k, { name: v.name, lines: v.lines.map(stripTs) }]))
     }));
     const jsonStr = JSON.stringify({ config: { table_columns: CONFIG.table_columns, clickable_patterns: CONFIG.clickable_patterns }, stats: st, entries: data });
@@ -1125,7 +1236,7 @@ else h+='<div class="mv">'+esc2(m.v)+'</div>';h+='</div>'});h+='</div>';
 if(e.successLine)h+='<div class="se"><div class="st" style="color:#34d399">✓ Success Match</div><div class="sb2">'+mkC(e.successLine)+'</div></div>';
 if(e.failLines&&e.failLines.length)h+='<div class="se"><div class="st" style="color:#f87171">✗ Failure Matches</div><div class="fb">'+e.failLines.map(l=>mkC(l)).join('<br>')+'</div></div>';
 if(e.patternGroups&&Object.keys(e.patternGroups).length){h+='<div class="se"><div class="st" style="color:#60dcfa">Pattern Groups</div>';for(const[,g]of Object.entries(e.patternGroups))h+='<div style="margin-bottom:12px"><div class="gn">'+esc2(g.name)+'</div><div class="lb" style="max-height:200px">'+g.lines.map(l=>mkC(l)).join('<br>')+'</div></div>';h+='</div>'}
-h+='<div class="se"><div class="st" style="color:#94a3b8">All Valid Logs ('+e.allLines.length+' lines)</div><div class="lb">'+e.allLines.map((l,i)=>'<span style="color:#334155;min-width:30px;display:inline-block;text-align:right;margin-right:10px;user-select:none">'+(i+1)+'</span>'+mkC(l)).join('<br>')+'</div></div></div>';
+h+='<div class="se"><div class="st" style="color:#94a3b8">All Valid Logs ('+e.allLines.length+' lines)</div><div class="lb">'+e.allLines.map((l,i)=>{const ln=(e.lineNumbers&&e.lineNumbers[i])?e.lineNumbers[i]:(i+1);return '<span style="color:#334155;min-width:30px;display:inline-block;text-align:right;margin-right:10px;user-select:none">L'+ln+'</span>'+mkC(l)}).join('<br>')+'</div></div></div>';
 document.getElementById('mc2').innerHTML=h;document.getElementById('md').classList.add('op')}
 function cm(){document.getElementById('md').classList.remove('op')}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')cm()});
