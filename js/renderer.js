@@ -493,12 +493,17 @@ async function openFile() {
     }
 
     if (window.electronAPI && window.electronAPI.openAndReadFile) {
-        logToFile('info', 'Requesting main process to open file dialog.');
-        showLoadingState("..."); // Show a generic loading state
-        updateLoadingState('Waiting for file selection...');
-        const result = await window.electronAPI.openAndReadFile();
-        if (!result.success && result.reason !== 'Canceled') {
-            showErrorToast(`Error during file open: ${result.reason}`, result.stack);
+        try {
+            logToFile('info', 'Requesting main process to open file dialog.');
+            showLoadingState("..."); // Show a generic loading state
+            updateLoadingState('Waiting for file selection...');
+            const result = await window.electronAPI.openAndReadFile();
+            if (result && !result.success && result.reason !== 'Canceled') {
+                showErrorToast(`Error during file open: ${result.reason}`, result.stack);
+            }
+        } catch (err) {
+            showErrorToast(`An IPC error occurred: ${err.message}`, err.stack);
+            logToFile('error', 'IPC invoke for openAndReadFile failed', err);
         }
     } else {
         // Fallback for non-electron environment (won't work well with large files)
@@ -515,7 +520,11 @@ async function openFile() {
                     logToFile('info', 'File read with browser FileReader.');
                     processText(e.target.result, file.name)
                 };
-                reader.onerror = err => showErrorToast(`File reading error: ${err.message}`, err.stack);
+                reader.onerror = () => {
+                    const err = reader.error;
+                    showErrorToast(`File reading error: ${err.name}`, err.message);
+                    logToFile('error', 'FileReader failed', err);
+                };
                 reader.readAsText(file);
             }
         };
