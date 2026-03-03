@@ -1,166 +1,103 @@
-# Voice Interaction Log Analyzer - Desktop App
+# Voice Interaction Log Analyzer (VILA)
 
-음성 인터랙션 로그를 발화(utterance) 단위로 분석하여 리포트를 생성하는 도구입니다. 데스크톱 환경에서 실행되며, 로그 파일을 드래그·드롭하거나 클립보드에 복사된 텍스트를 붙여넣어 빠르게 분석할 수 있습니다. 앱 창 상단에는 현재 빌드 버전이 표시되며(예: `[1.0.0] by SimpsonYS`), 프로그램의 변경 사항이 반영된 상태인지 즉시 확인할 수 있습니다.
+VILA는 복잡한 음성 인터랙션 로그를 발화(utterance) 단위로 신속하게 분석하고 시각화하기 위해 개발된 데스크톱 애플리케이션입니다. 로그 파일을 드래그·드롭하거나 클립보드에 복사된 텍스트를 붙여넣는 것만으로 자동 분석이 시작되며, 개발자와 QA 엔지니어가 디버깅 및 품질 분석에 소요되는 시간을 획기적으로 단축할 수 있도록 돕습니다.
 
-## 🏗️ 저장소 구조
+## ✨ 주요 기능 (Features)
 
-이 프로젝트는 **두 개의 저장소**로 분리되어 있습니다:
+- **간편한 로그 분석**: 드래그앤드롭, 파일 선택, 클립보드 붙여넣기(Ctrl+V) 등 다양한 방법으로 로그를 즉시 분석할 수 있습니다.
+- **자동 인코딩 감지**: UTF-8, EUC-KR, UTF-16 등 다양한 인코딩을 자동으로 감지하여 깨짐 없이 로그를 처리합니다.
+- **강력한 커스터마이징**: `pattern_config.json` 파일을 통해 로그 분석의 모든 측면을 제어할 수 있습니다.
+    - **분석 패턴**: 로그 블록의 시작/종료, 성공/실패 패턴을 정규식으로 정의합니다.
+    - **데이터 추출**: 발화문, 대화 ID, 요청 ID 등 원하는 정보를 정규식 캡처 그룹으로 추출합니다.
+    - **결과 테이블 커스터마이징**: 분석 결과를 표시할 테이블의 열(column)을 자유롭게 추가, 제거, 수정할 수 있습니다.
+- **프리셋 관리**: 여러 개의 `pattern_config` 파일을 프리셋으로 관리할 수 있습니다. UI에서 간편하게 프리셋을 전환하며 다양한 로그 포맷에 대응할 수 있고, 사용자가 직접 만든 프리셋을 추가할 수도 있습니다.
+- **상세 분석 뷰**: 각 발화 항목을 클릭하면 해당 로그 블록의 모든 정보(추출 데이터, 그룹 패턴, 전체 로그)를 포함한 상세 뷰를 확인할 수 있습니다. 메인 창 또는 별도의 새 창에서 열 수 있어 다중 분석에 용이합니다.
+- **스크린샷 연동**: 로그 파일과 동일한 디렉터리에 `screenshot` 폴더가 있으면, 발화 내용과 연관된 스크린샷 이미지를 찾아 상세 뷰에 자동으로 표시합니다.
+- **실시간 스트리밍 파싱**: 대용량 로그 파일도 UI 멈춤 없이 실시간으로 분석 결과를 표시하여 빠른 피드백을 제공합니다.
+- **HTML 리포트 내보내기**: 분석 결과를 공유하기 쉬운 단일 HTML 파일로 내보낼 수 있습니다. 이 리포트에는 모든 데이터와 인터랙티브 뷰어가 포함되어 있어, VILA 앱이 없는 사용자도 결과를 확인할 수 있습니다.
+- **자동 업데이트**: 앱 실행 시 새로운 버전을 자동으로 확인하고, 클릭 한 번으로 간편하게 업데이트할 수 있습니다.
+- **편의 기능**: 다크 테마 UI, 화면 확대/축소(Ctrl+휠) 등을 지원합니다.
 
-| 저장소 | 설명 | 접근성 | 용도 |
-|--------|------|--------|------|
-| **VILA** (Private) | 소스 코드 저장소 | Private | 개발, 빌드, 설정 관리 |
-| **VILA-Releases** (Public) | 배포 저장소 | Public | 최종 exe 파일 및 릴리스 배포 |
 
-### 워크플로우
-1. **개발 단계**: Private 저장소 (`VILA`)에서 코드 수정
-2. **빌드**: `npm run build` → `dist/Voice Log Analyzer Setup 1.0.0.exe` 생성
-3. **배포**: 생성된 exe 파일을 Public 저장소 (`VILA-Releases`)의 Release로 업로드
-4. **자동 업데이트**: 앱 사용자는 🔄 Update 버튼을 통해 Public 저장소에서 최신 버전 다운로드
+## 🚀 사용법 (Usage)
 
-이를 통해 **소스 코드 보호**와 **안전한 배포**를 동시에 실현합니다.
+### 기본 사용법
+1.  앱을 실행합니다.
+2.  로그 파일을 창 안으로 드래그하거나, **파일 열기** 버튼으로 직접 선택합니다. 혹은, 로그 텍스트를 클립보드에 복사한 뒤 앱에 `Ctrl+V`로 붙여넣습니다.
+3.  분석이 자동으로 시작되며, 진행률과 함께 결과가 테이블에 표시됩니다.
+4.  테이블 상단의 필터 입력창에 키워드를 입력하여 특정 열의 내용을 필터링하거나, 상단 중앙의 검색창으로 전역 검색을 할 수 있습니다.
+5.  테이블의 각 행을 클릭하면 해당 발화의 상세 정보를 확인할 수 있습니다.
 
-## 기능
-- **로그 파일 분석**: 드래그앤드롭, 파일선택, 클립보드 붙여넣기 (Ctrl+V) 지원
-- **자동 인코딩 감지**: UTF-8, EUC-KR, UTF-16 자동 감지
-- **실시간 스트리밍 파싱**: 대용량 로그도 끊김 없이 처리
-- **Configurable**: `pattern_config.json`으로 시작/종료/성공/실패 패턴, 발화 추출, 클릭 가능한 패턴, 테이블 열 구성 등을 자유롭게 변경
-- **HTML + JSON Export**: 분석 결과를 HTML 리포트 + JSON 데이터로 내보내기하여 다른 팀과 공유
-- **Clickable 패턴**: ConversationID, RequestID 등 클릭 시 외부 URL 열기
-- **버전 표시**: 창 제목 바로 아래에 `[AppVersion] by SimpsonYS` 형태로 현재 앱 버전이 표시되어 수정 사항이 반영된 앱인지 확인 가능
-- **자동 업데이트**: 🔄 Update 버튼을 클릭하면 자동으로 최신 버전 확인 및 다운로드, "설치 및 재시작" 버튼으로 즉시 업그레이드 가능
-- **줌 기능**: 모든 창에서 **Ctrl+휠**로 글자 크기 확대/축소, **Ctrl+**/**Ctrl-** 키도 지원. UI가 작을 때 편리하게 화면 배율을 조절할 수 있습니다.
-- **Dark Theme UI**: 눈에 부담 적은 다크 테마 디자인
+### 설정 (`pattern_config.json`) 수정 방법
 
-## 사용법
+VILA의 가장 강력한 기능은 사용자가 직접 로그 분석 규칙을 정의할 수 있다는 것입니다.
 
-### 기본 사용
-1. 앱을 실행합니다.
-2. 로그 파일을 드래그하거나 **파일 열기** 버튼을 이용해 선택합니다. 또는 텍스트를 클립보드에 복사한 뒤 **Ctrl+V**를 눌러 붙여넣습니다.
-3. 파싱이 진행되면 실시간으로 진행률과 통계가 표시됩니다.
-4. 검색창에 키워드를 입력하면 전체 컬럼을 대상으로 필터링합니다.
-5. 테이블 행을 클릭하면 발화 상세 정보와 관련 로그를 확인할 수 있습니다.
-6. ⚙ Config 버튼을 눌러 설정 파일 폴더를 열어 패턴을 수정할 수 있습니다.
-7. 결과를 저장하려면 **Export HTML + JSON** 버튼을 클릭하세요.
+1.  **설정 폴더 열기**: 앱 우측 상단의 **⚙️ Config** 버튼을 클릭하면 설정 파일(`pattern_config.json` 등)이 저장된 폴더가 열립니다.
+2.  **프리셋 선택 및 수정**:
+    -   **기본 설정 수정**: `pattern_config.json` 파일을 직접 수정하면 기본 프리셋의 분석 규칙이 변경됩니다.
+    -   **새 프리셋 추가**:
+        1.  기존 `pattern_config.json` 파일을 복사합니다.
+        2.  파일명을 `Preset<번호>_<이름>_pattern_config.json` 형식으로 변경합니다. (예: `Preset2_MyNewLog_pattern_config.json`)
+        3.  앱을 재시작하거나, 프리셋 목록 옆의 새로고침 버튼을 누르면 새로운 프리셋이 UI에 표시됩니다.
+3.  **JSON 파일 수정**: 텍스트 에디터로 JSON 파일을 열어 아래 항목들을 로그 포맷에 맞게 수정합니다. **정규식(Regex)** 구문이 주로 사용됩니다.
 
-### 줌 조절
-- **Ctrl + 마우스 휠**: 화면 배율 확대/축소
-- **Ctrl + + / Ctrl + -**: 글자 크기 키보드 단축
-- 배율은 50%~300% 사이로 제한되며, app 환경에 따라 자동 저장되지는 않습니다.
+#### 주요 설정 항목
 
-### 리뷰/디버그
-- 앱을 재배포할 때 소스의 `package.json` `version` 값을 변경하면 제목과 내보낸 리포트에도 자동 반영됩니다.
+-   `"start_patterns"`, `"end_patterns"`: 하나의 발화 로그 블록이 시작되고 끝나는 것을 구분하는 문자열 또는 정규식 배열입니다.
+-   `"success_patterns"`, `"failure_patterns"`: 로그 블록 내에 해당 패턴이 존재하면 발화의 성공/실패 여부를 결정합니다.
+-   `"utterance_patterns"`: 로그에서 실제 사용자 발화문을 추출하는 규칙입니다. 정규식의 캡처 그룹 `()`을 사용하여 특정 부분을 추출하고, `"utterance": "{value}"` 형식으로 지정합니다.
+-   `"clickable_patterns"`: `conversationId`처럼 로그에서 특정 ID를 추출하고, 클릭 시 지정된 URL로 이동하는 링크를 생성하는 규칙입니다.
+-   `"pattern_groups"`: 관련 있는 로그 라인들을 그룹으로 묶어 상세 뷰에서 별도로 보여주는 규칙입니다.
+-   `"table_columns"`: 메인 화면에 표시될 결과 테이블의 열을 정의합니다. `key` 값은 `clickable_patterns` 등에서 추출된 데이터의 key와 일치해야 합니다.
 
-## 빌드 방법 (Windows exe)
-
-### 사전 준비
-- Node.js 18+ 설치 (https://nodejs.org)
-- Git (선택사항)
-
-### 빌드 순서
-
-```bash
-# 1. 프로젝트 폴더로 이동
-cd voice-log-analyzer-electron
-
-# 2. 의존성 설치
-npm install
-
-# 3. 개발 모드 실행 (테스트)
-npm start
-
-# 4. Windows exe 빌드 (인스톨러)
-npm run build
-
-# 5. 또는 Portable exe 빌드 (설치 없이 실행)
-npm run build:portable
-```
-
-빌드 결과물은 `dist/` 폴더에 생성됩니다.
-
-### 아이콘 추가 (선택)
-- `icon.png` (256x256 이상) 파일을 프로젝트 루트에 추가하면 exe 아이콘으로 사용됩니다.
-
-### 🚀 배포 (Public Releases)
-
-빌드 후 최종 exe 파일을 배포하려면:
-
-1. **GitHub에서 VILA-Releases 저장소 준비**
-   - Public 저장소로 설정 (https://github.com/simpsonys/VILA-Releases)
-   - README 파일 추가 (선택사항)
-
-2. **새 Release 생성**
-   ```
-   Tag: v1.0.0 (package.json의 version과 동일)
-   Title: Version 1.0.0
-   ```
-
-3. **exe 파일 업로드**
-   - `dist/Voice Log Analyzer Setup 1.0.0.exe` 업로드
-   - `dist/Voice Log Analyzer Setup 1.0.0.exe.blockmap` 업로드 (차이 업데이트용)
-
-4. **Publish Release**
-
-**자동 업데이트 확인:**
-- 앱 사용자가 🔄 Update 버튼 클릭 → VILA-Releases의 최신 Release에서 자동 감지
-- 새 버전이 있으면 다운로드 → "설치 및 재시작" 버튼 클릭으로 자동 업그레이드
-
-## Config 파일
-
-(이후 내용은 기존과 동일합니다.)
-첫 실행 시 `%APPDATA%/voice-log-analyzer/pattern_config.json`에 기본 설정 파일이 자동 생성됩니다.
-
-앱 헤더의 ⚙ Config 버튼을 클릭하면 설정 파일이 있는 폴더를 열어줍니다.
-
-### Config 구조
-
-```json
-{
-  "start_patterns": ["패턴1", "패턴2"],
-  "end_patterns": ["종료패턴"],
-  "success_patterns": ["성공패턴"],
-  "failure_patterns": ["실패패턴"],
-  "clickable_patterns": {
-    "키": {
-      "pattern": "정규식",
-      "url_template": "https://example.com?id={value}",
-      "display_name": "표시명"
+**예시: 새로운 ID 추출 및 테이블에 추가하기**
+1.  `pattern_config.json`을 엽니다.
+2.  `"clickable_patterns"`에 새로운 항목을 추가하여 `deviceId`를 추출합니다.
+    ```json
+    "deviceId": {
+      "pattern": "deviceId\\[([^\\]]+)\\]",
+      "url_template": null,
+      "display_name": "Device ID"
     }
-  },
-  "utterance_patterns": {
-    "키": {
-      "pattern": "정규식 (캡처그룹)",
-      "utterance": "{value}"
-    }
-  },
-  "pattern_groups": {
-    "키": {
-      "name": "그룹명",
-      "patterns": ["정규식1", "정규식2"]
-    }
-  },
-  "table_columns": [
-    { "key": "conversationId", "label": "Conversation ID", "width": "22%", "clickable_key": "conversationId" },
-    { "key": "requestId", "label": "Request ID", "width": "12%" },
-    { "key": "utterance", "label": "Utterance", "width": "30%", "type": "utterance" },
-    { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
-    { "key": "successLine", "label": "Success Match", "width": "28%", "type": "log" }
-  ]
-}
-```
+    ```
+3.  `"table_columns"` 배열에 `deviceId`를 표시할 열을 추가합니다.
+    ```json
+    { "key": "deviceId", "label": "Device ID", "width": "15%" }
+    ```
+4.  설정 파일을 저장하고 앱의 **🔄 Refresh Analysis** 버튼을 누르면 변경된 규칙으로 재분석이 수행됩니다.
 
-### table_columns 타입
-- `utterance`: 클릭 가능한 발화 텍스트 (클릭 시 상세보기)
-- `badge`: 결과 상태 뱃지 (SUCCESS/FAIL/PARTIAL/Unknown)
-- `log`: 로그 라인 (timestamp 자동 제거)
-- `clickable_key`: clickable_patterns의 키 참조 → 클릭 시 URL 이동
+## 🏗️ 빌드 및 배포
 
-## 프로젝트 구조
+### 빌드 방법 (Windows exe)
+1.  **의존성 설치**: `npm install`
+2.  **개발 모드 실행**: `npm start`
+3.  **EXE 빌드**: `npm run build` (인스톨러), `npm run build:portable` (무설치 버전)
+    -   빌드 결과물은 `dist/` 폴더에 생성됩니다.
+
+### 배포 워크플로우
+VILA는 소스 코드(`VILA`, Private)와 배포(`VILA_Release`, Public) 저장소를 분리하여 관리합니다.
+1.  `VILA` 저장소에서 개발 및 수정을 진행합니다.
+2.  `npm run build`로 생성된 `Setup.exe` 파일을 `VILA_Release` 저장소의 새 릴리스에 업로드합니다.
+3.  앱 사용자는 자동 업데이트 기능을 통해 `VILA_Release` 저장소에서 최신 버전을 다운로드받습니다.
+
+
+## 📂 프로젝트 구조
 ```
-voice-log-analyzer-electron/
+VILA_SB/
+├── .github/              # GitHub Actions 워크플로우
+├── css/
+│   └── styles.css        # UI 스타일시트
+├── js/
+│   └── renderer.js       # 렌더러 프로세스 로직 (UI, 파싱 실행)
+├── release_repo/         # VILA_Release 저장소용 README
+├── scripts/
+│   └── update-build-time.js # 빌드 시간 기록 스크립트
 ├── package.json          # 의존성 및 빌드 설정
-├── main.js               # Electron 메인 프로세스
-├── preload.js            # 보안 브릿지
-├── index.html            # 앱 UI (자체 완결)
-├── default_config.json   # 기본 설정 파일
+├── main.js               # Electron 메인 프로세스 (윈도우, 파일 시스템, IPC)
+├── preload.js            # 메인-렌더러 프로세스 간 보안 브릿지
+├── index.html            # 애플리케이션 UI
+├── parser.js             # 핵심 로그 파싱 로직
+├── pattern_config.json   # 기본 분석 패턴 설정
+├── default_config.json   # 최초 실행 시 복사되는 기본 설정
 └── README.md             # 이 파일
 ```
