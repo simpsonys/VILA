@@ -71,8 +71,8 @@
 
             <!-- Split layout after analysis complete -->
             <div id="progressSplitLayout" style="display:none">
-                <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
-                    <!-- Left: Progress Info -->
+                <div style="display:flex;flex-direction:column;gap:15px">
+                    <!-- Top: Progress Info -->
                     <div>
                         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
                             <div style="display:flex;align-items:center;gap:10px">
@@ -92,12 +92,12 @@
                         </div>
                     </div>
 
-                    <!-- Right: Secondary Drop Zone -->
+                    <!-- Bottom: Secondary Drop Zone -->
                     <div>
-                        <div class="dropzone" id="secondaryDropZone" style="padding:40px 20px;margin:0;border-radius:10px">
-                            <div class="dropzone-icon" style="font-size:32px">📄</div>
-                            <div class="dropzone-title" style="font-size:14px">Drop another file here</div>
-                            <div class="dropzone-sub" style="font-size:11px;margin-bottom:12px">or click to browse</div>
+                        <div class="dropzone" id="secondaryDropZone" style="padding:20px;margin:0;border-radius:10px">
+                            <div class="dropzone-icon" style="font-size:24px;margin-bottom:8px">📄</div>
+                            <div class="dropzone-title" style="font-size:13px;margin-bottom:4px">Drop another file here</div>
+                            <div class="dropzone-sub" style="font-size:11px;margin-bottom:10px">or click to browse</div>
                             <button class="btn-paste" style="font-size:11px;padding:6px 16px" onclick="event.stopPropagation();doPaste()">📋 Paste</button>
                         </div>
                     </div>
