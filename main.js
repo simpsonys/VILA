@@ -275,23 +275,47 @@ ipcMain.handle("open-and-read-file", async (event, forceFilePath) => {
 
     const { TextDecoder } = require('util');
     const decoder = new TextDecoder(encoding);
+    let lineBuffer = ''; // ── FIX: Buffer for incomplete lines across chunks
     
     activeFileStream = fs.createReadStream(filePath);
     
     activeFileStream.on('data', (chunk) => {
       // Convert buffer chunk to string using detected encoding
-      const textChunk = decoder.decode(chunk, { stream: true });
+      let textChunk = decoder.decode(chunk, { stream: true });
+      // ── FIX: Normalize CRLF/CR to LF (SDB logs often have mixed line endings)
+      textChunk = textChunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      // ── FIX: Resolve literal \n before timestamps (SDB embedded newlines)
+      textChunk = textChunk.replace(/\\n(?=\[?\d{2}-\d{2}-\d{4}\s)/g, '\n');
+      
+      // ── FIX: Prepend leftover from previous chunk to avoid mid-line splits
+      textChunk = lineBuffer + textChunk;
+      const lastNewline = textChunk.lastIndexOf('\n');
+      if (lastNewline === -1) {
+        // No complete line in this chunk yet — buffer entirely
+        lineBuffer = textChunk;
+        return;
+      }
+      // Send complete lines, keep remainder for next chunk
+      lineBuffer = textChunk.substring(lastNewline + 1);
+      const completeText = textChunk.substring(0, lastNewline + 1);
+      
       event.sender.send('file-data-chunk', {
-        text: textChunk,
+        text: completeText,
         byteLength: chunk.length
       });
     });
 
     activeFileStream.on('end', () => {
-      // Final flush
+      // Final flush from TextDecoder
       const finalChunk = decoder.decode();
-      if (finalChunk) {
-        event.sender.send('file-data-chunk', finalChunk);
+      // ── FIX: Flush remaining lineBuffer + final decoded text
+      const remaining = lineBuffer + (finalChunk || '');
+      lineBuffer = '';
+      if (remaining) {
+        event.sender.send('file-data-chunk', {
+          text: remaining,
+          byteLength: Buffer.byteLength(remaining, 'utf-8')
+        });
       }
       event.sender.send('file-read-complete');
       activeFileStream = null;
