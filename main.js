@@ -275,48 +275,24 @@ ipcMain.handle("open-and-read-file", async (event, forceFilePath) => {
 
     const { TextDecoder } = require('util');
     const decoder = new TextDecoder(encoding);
-    let lineBuffer = ''; // ── FIX: Buffer for incomplete lines across chunks
     
     activeFileStream = fs.createReadStream(filePath);
     
     activeFileStream.on('data', (chunk) => {
       // Convert buffer chunk to string using detected encoding
-      let textChunk = decoder.decode(chunk, { stream: true });
-      // ── FIX: Normalize CRLF/CR to LF (SDB logs often have mixed line endings)
-      textChunk = textChunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-      // ── FIX: Resolve literal \n before timestamps (SDB embedded newlines)
-      textChunk = textChunk.replace(/\\n(?=\[?\d{2}-\d{2}-\d{4}\s)/g, '\n');
-      // ── FIX: Also handle literal \n before logcat-style timestamps (e.g. \n11136.181 E/VOICE_CLIENT)
-      textChunk = textChunk.replace(/\\n(?=\d{4,6}\.\d{1,3}\s+[VDIWEF]\/)/g, '\n');
-      
-      // ── FIX: Prepend leftover from previous chunk to avoid mid-line splits
-      textChunk = lineBuffer + textChunk;
-      const lastNewline = textChunk.lastIndexOf('\n');
-      if (lastNewline === -1) {
-        // No complete line in this chunk yet — buffer entirely
-        lineBuffer = textChunk;
-        return;
-      }
-      // Send complete lines, keep remainder for next chunk
-      lineBuffer = textChunk.substring(lastNewline + 1);
-      const completeText = textChunk.substring(0, lastNewline + 1);
-      
+      const textChunk = decoder.decode(chunk, { stream: true });
       event.sender.send('file-data-chunk', {
-        text: completeText,
+        text: textChunk,
         byteLength: chunk.length
       });
     });
 
     activeFileStream.on('end', () => {
-      // Final flush from TextDecoder
       const finalChunk = decoder.decode();
-      // ── FIX: Flush remaining lineBuffer + final decoded text
-      const remaining = lineBuffer + (finalChunk || '');
-      lineBuffer = '';
-      if (remaining) {
+      if (finalChunk) {
         event.sender.send('file-data-chunk', {
-          text: remaining,
-          byteLength: Buffer.byteLength(remaining, 'utf-8')
+          text: finalChunk,
+          byteLength: Buffer.byteLength(finalChunk, 'utf-8')
         });
       }
       event.sender.send('file-read-complete');
