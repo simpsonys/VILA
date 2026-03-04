@@ -688,7 +688,17 @@ function handleStreamingChunk(chunkData) {
     const byteLength = typeof chunkData === 'string' ? 0 : chunkData.byteLength;
     
     streamBytesProcessed += byteLength;
-    streamLineBuffer += text;
+    
+    // FIX: Normalize literal \n (backslash+n) from SDB logs before splitting
+    // This handles cases where main.js normalization didn't catch everything,
+    // or when text comes from clipboard/non-Electron paths.
+    let normalizedText = text;
+    if (normalizedText.includes('\\n')) {
+        normalizedText = normalizedText.replace(/\\n(?=\[?\d{2}-\d{2}-\d{4}\s)/g, '\n');
+        normalizedText = normalizedText.replace(/\\n(?=\d{4,6}\.\d{1,3}\s+[VDIWEF]\/)/g, '\n');
+    }
+    
+    streamLineBuffer += normalizedText;
     const lines = streamLineBuffer.split(/\r?\n|\r/);
     
     // Keep the last partial line in the buffer
@@ -781,6 +791,19 @@ function startParsing(text, name, enc) {
     if (text.includes("\nL")) {
         logToFile('info', 'SDB newline marker (\\nL[number]) detected. Normalizing newlines.');
         text = text.replace(SDB_NEWLINE_MARKER, "\n");
+    }
+
+    // FIX: SDB-pulled logs embed literal two-char "\n" (backslash + n) inside JSON payloads
+    // instead of real newlines. e.g. {"result":"SUCCESS"}\n[28-02-2026 06.25.44.857]
+    // Convert these to real newlines when followed by a timestamp pattern.
+    if (text.includes('\\n')) {
+        const before = text.length;
+        text = text.replace(/\\n(?=\[?\d{2}-\d{2}-\d{4}\s)/g, '\n');
+        // Also handle: literal \n followed by a logcat tag pattern (e.g., \n11136.181 E/VOICE_CLIENT)
+        text = text.replace(/\\n(?=\d{4,6}\.\d{1,3}\s+[VDIWEF]\/)/g, '\n');
+        if (text.length !== before) {
+            logToFile('info', `SDB literal \\n normalization applied. Length: ${before} -> ${text.length}`);
+        }
     }
 
     const lines = text.split(/\r?\n|\r/), total = lines.length;
@@ -1162,7 +1185,12 @@ function escJS(s) {
         .replace(/'/g, "\\'")
         .replace(/"/g, '\\"')
         .replace(/\n/g, '\\n')
-        .replace(/\r/g, '\\r');
+        .replace(/\r/g, '\\r')
+        // FIX: Remove null bytes and control chars (common in SDB-pulled logs)
+        // that cause "Invalid or unexpected token" when embedded in onclick attrs
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '')
+        .replace(/`/g, '\\`')
+        .replace(/\$/g, '\\$');
 }
 
 function copyToClipboard(text) {
@@ -1550,62 +1578,6 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape')cm()});
 window.onload=()=>{const p=window.location.pathname;if(p.endsWith('.html')){const j=p.replace(/\\.html$/i,'_data.json');fetch(j).then(r=>r.json()).then(d=>{D=d.entries;C=d.config;S=d.stats;init2()}).catch(e=>{console.log('Auto-load failed.')})}};
 <\/script><style>@keyframes fade{from{opacity:0;transform:translate(-50%,-20%)}to{opacity:1;transform:translate(-50%,-50%)}}</style></body></html>`;
 }
-
-function resetApp() {
-    entries = []; filteredData = []; sortCol = null; sortDir = 'asc'; currentFileName = null; currentFilePath = null; currentEncoding = null; currentRawText = null;
-    document.getElementById('dropzone').style.display = ''; 
-    document.getElementById('resultsArea').style.display = 'none'; 
-    document.getElementById('exportBtn').style.display = 'none';
-    document.getElementById('refreshBtn').style.display = 'none';
-    
-    const pp = document.getElementById('progressPanel'); 
-    if (pp) pp.classList.remove('show');
-    
-    const pl = document.getElementById('progressLayout'); 
-    if (pl) pl.style.display = 'block';
-
-    const psl = document.getElementById('progressSplitLayout'); 
-    if (psl) psl.style.display = 'none';
-}
-
-// ── Updates ──
-let updateState = null;
-async function checkForUpdates() {
-    showUpdateModal('Checking for updates...', 'checking');
-    if (window.electronAPI && window.electronAPI.checkUpdates) {
-        try { await window.electronAPI.checkUpdates(); } catch (e) { console.error('Update check error:', e); showUpdateModal('Update check failed', 'error'); }
-    } else { showUpdateModal('Update check not available in this version', 'error'); }
-}
-
-function showUpdateModal(message, state) {
-    updateState = state;
-    const modal = document.getElementById('updateModal');
-    const content = document.getElementById('updateContent');
-    const actionBtn = document.getElementById('updateActionBtn');
-    if (actionBtn) actionBtn.style.display = 'none';
-
-    let html = '';
-    if (state === 'checking') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:14px;color:#94a3b8">Checking for updates...</div><div style="margin-top:16px;animation:pulse 1s infinite">⏳</div></div>`;
-    else if (state === 'uptodate') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">✓</div><div style="font-size:14px;color:#94a3b8">${message}</div></div>`;
-    else if (state === 'downloading') html = `<div style="text-align:center;padding:20px"><div style="font-size:14px;color:#94a3b8;margin-bottom:12px">${message}</div><div style="animation:pulse 1s infinite">⬇️</div></div>`;
-    else if (state === 'ready') { html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">🎉</div><div style="font-size:14px;color:#94a3b8">${message}</div></div>`; if (actionBtn) actionBtn.style.display = 'block'; }
-    else if (state === 'error') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">⚠️</div><div style="font-size:14px;color:#f87171">${message}</div></div>`;
-
-    if (content) content.innerHTML = html;
-    if (modal) modal.classList.add('open');
-}
-
-function closeUpdateModal() { const modal = document.getElementById('updateModal'); if (modal) modal.classList.remove('open'); }
-
-async function handleUpdateAction() { if (updateState === 'ready' && window.electronAPI && window.electronAPI.installUpdate) { window.electronAPI.installUpdate(); } }
-
-async function openConfigFolder() {
-    if (window.electronAPI) { await window.electronAPI.openConfigFolder(); }
-    else { showErrorToast('Config file is embedded in the application. Use the Electron desktop version to customize config.'); }
-}
-
-// ── Boot ──
-document.addEventListener('DOMContentLoaded', init);
 
 
 

@@ -16,6 +16,8 @@ function createParser(config) {
     //         (common in SDB logcat output where \n is embedded in JSON strings)
     //         e.g., {"result":"ok"}\n[28-02-2026 06.25.44.857] → split into proper lines
     normalized = normalized.replace(/\\n(?=\[?\d{2}-\d{2}-\d{4}\s)/g, '\n');
+    // Also handle: literal \n before logcat-style tags (e.g. \n11136.181 E/VOICE_CLIENT)
+    normalized = normalized.replace(/\\n(?=\d{4,6}\.\d{1,3}\s+[VDIWEF]\/)/g, '\n');
     const lines = normalized.split('\n');
     const total = lines.length;
     let buffer = [];

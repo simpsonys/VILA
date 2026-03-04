@@ -286,6 +286,8 @@ ipcMain.handle("open-and-read-file", async (event, forceFilePath) => {
       textChunk = textChunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
       // ── FIX: Resolve literal \n before timestamps (SDB embedded newlines)
       textChunk = textChunk.replace(/\\n(?=\[?\d{2}-\d{2}-\d{4}\s)/g, '\n');
+      // ── FIX: Also handle literal \n before logcat-style timestamps (e.g. \n11136.181 E/VOICE_CLIENT)
+      textChunk = textChunk.replace(/\\n(?=\d{4,6}\.\d{1,3}\s+[VDIWEF]\/)/g, '\n');
       
       // ── FIX: Prepend leftover from previous chunk to avoid mid-line splits
       textChunk = lineBuffer + textChunk;
