@@ -23,6 +23,7 @@
                 <div style="display:flex;align-items:center;gap:4px;">
                     <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="openConfigFolder()" title="Open Config Folder">📂 Config</button>
                     <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;display:flex;align-items:center;gap:4px" id="openLogBtn" title="Open App Log File">📄 App Log</button>
+                    <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()" title="Toggle Developer Tools">🛠 DevTools</button>
                 </div>
                 <span class="preset-label" style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase">Preset:</span>
                 <div class="radio-group" id="presetRadios" style="display:flex;align-items:center;gap:12px"></div>

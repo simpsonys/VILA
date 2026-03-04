@@ -409,9 +409,6 @@ function setupEventListeners() {
     setupSecondaryDropZone();
 
     document.getElementById('openLogBtn').addEventListener('click', () => {
-        if (window.electronAPI && window.electronAPI.toggleDevTools) {
-            window.electronAPI.toggleDevTools();
-        }
         if (window.electronAPI && window.electronAPI.openLogFile) {
             window.electronAPI.openLogFile();
         }
@@ -581,6 +578,7 @@ function readFile(file) {
     if (!file) return;
     if (window.electronAPI && window.electronAPI.openAndReadFile && file.path) {
         logToFile('info', 'File dropped, using streaming reader.', { path: file.path });
+        currentFilePath = file.path; // Explicitly set it here as well for immediate use if needed
         window.electronAPI.openAndReadFile(file.path);
     } else {
         logToFile('info', 'File dropped, using browser FileReader (fallback).');
@@ -1224,7 +1222,7 @@ async function displayDetailWindow(data) {
     }
 
     let h = `<div class="modal-body" style="max-width:none;height:100vh;display:flex;flex-direction:column;border-radius:0">`;
-    h += `<div class="modal-hdr" style="border-bottom:1px solid #1e2433"><div style="flex:1"><div style="font-size:18px;font-weight:700">Utterance Detail #${utteranceIndex}</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div></div>`;
+    h += `<div class="modal-hdr" style="border-bottom:1px solid #1e2433"><div style="flex:1"><div style="font-size:18px;font-weight:700">Utterance Detail #${utteranceIndex}</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()">🛠 DevTools</button></div></div>`;
     h += '<div class="modal-content" style="flex:1;overflow-y:auto"><div class="meta-grid">';
 
     [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
@@ -1294,10 +1292,7 @@ async function displayDetailWindow(data) {
         return `L${ln}  ${l}`;
     }).join('\r\n');
 
-    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button></div><div class="log-box">${e.allLines.map((l, i) => {
-        const lineNum = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
-        return `<span style="color:#334155;min-width:40px;display:inline-block;text-align:right;margin-right:10px;user-select:none">L${lineNum}</span>${makeClickable(stripTs(l))}`;
-    }).join('<br>')}</div></div></div></div>`;
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">🌐 Open in Browser</button></div></div></div></div></div>`;
 
     let detailContainer = document.getElementById('detailWindowContainer');
     if (!detailContainer) {
@@ -1313,7 +1308,7 @@ async function showDetail(idx) {
     const e = filteredData[idx];
     if (!e) return;
 
-    let h = `<div class="modal-hdr"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><button class="modal-close" onclick="closeModal()">✕</button></div>`;
+    let h = `<div class="modal-hdr"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()">🛠 DevTools</button><button class="modal-close" onclick="closeModal()" style="position:static;margin-left:10px">✕</button></div></div>`;
     h += '<div class="modal-content"><div class="meta-grid">';
 
     [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
@@ -1383,10 +1378,7 @@ async function showDetail(idx) {
         return `L${ln}  ${l}`;
     }).join('\r\n');
 
-    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button></div><div class="log-box">${e.allLines.map((l, i) => {
-        const lineNum = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
-        return `<span style="color:#334155;min-width:40px;display:inline-block;text-align:right;margin-right:10px;user-select:none">L${lineNum}</span>${makeClickable(stripTs(l))}`;
-    }).join('<br>')}</div></div></div>`;
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">🌐 Open in Browser</button></div></div></div></div>`;
 
     document.getElementById('modalContent').innerHTML = h;
     document.getElementById('modal').classList.add('open');

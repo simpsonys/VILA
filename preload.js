@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   logMessage: (log) => ipcRenderer.send("log-message", log),
   openLogFile: () => ipcRenderer.invoke("open-log-file"),
   toggleDevTools: () => ipcRenderer.invoke("toggle-devtools"),
+  openInBrowser: (text) => ipcRenderer.invoke("open-in-browser", text),
 
   // Auto-update methods
   checkUpdates: () => ipcRenderer.invoke("check-updates"),

@@ -375,6 +375,20 @@ ipcMain.handle("toggle-devtools", () => {
   }
 });
 
+// IPC: Open text in browser (temporary file)
+ipcMain.handle("open-in-browser", async (event, text) => {
+  try {
+    const tempPath = path.join(app.getPath("temp"), `villa_log_${Date.now()}.txt`);
+    fs.writeFileSync(tempPath, text, "utf8");
+    const { shell } = require("electron");
+    await shell.openExternal(`file://${tempPath}`);
+    return true;
+  } catch (e) {
+    console.error("Failed to open in browser:", e);
+    return false;
+  }
+});
+
 // IPC: Get screenshots from log file directory
 ipcMain.handle("get-screenshots", async (event, args) => {
   const logFilePath = typeof args === 'string' ? args : args.logFilePath;
