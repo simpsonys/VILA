@@ -367,6 +367,14 @@ ipcMain.handle("get-version", () => {
   return baseVersion;
 });
 
+// IPC: Toggle Developer Tools
+ipcMain.handle("toggle-devtools", () => {
+  const win = BrowserWindow.getFocusedWindow();
+  if (win) {
+    win.webContents.toggleDevTools();
+  }
+});
+
 // IPC: Get screenshots from log file directory
 ipcMain.handle("get-screenshots", async (event, args) => {
   const logFilePath = typeof args === 'string' ? args : args.logFilePath;
@@ -429,10 +437,17 @@ ipcMain.handle("get-screenshots", async (event, args) => {
       if (!nameLower.endsWith(".png")) return false;
       if (nameLower.startsWith("발화_")) return true;
       if (utterance) {
-        // Remove common non-filename characters and trim
-        const sanitizedUtt = utterance.toLowerCase().replace(/[:/\\?*<>|+\-_]/g, " ").replace(/\s+/g, " ").trim();
+        // Create a flexible search pattern: replace spaces/underscores/dashes with a regex that matches any of them
+        const baseUtt = utterance.toLowerCase().trim();
+        const sanitizedUtt = baseUtt.replace(/[:/\\?*<>|+\-_]/g, " ").replace(/\s+/g, " ").trim();
+        
+        // Exact match of sanitized version
         if (sanitizedUtt && nameLower.includes(sanitizedUtt)) return true;
         
+        // Match with underscores or dashes instead of spaces
+        const flexiblePattern = sanitizedUtt.replace(/\s+/g, "[\\s\\-_]");
+        if (new RegExp(flexiblePattern).test(nameLower)) return true;
+
         // Split utterance by spaces and check if first 2-3 words match
         const parts = sanitizedUtt.split(' ').filter(p => p.length > 2);
         if (parts.length >= 2) {

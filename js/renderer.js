@@ -409,6 +409,9 @@ function setupEventListeners() {
     setupSecondaryDropZone();
 
     document.getElementById('openLogBtn').addEventListener('click', () => {
+        if (window.electronAPI && window.electronAPI.toggleDevTools) {
+            window.electronAPI.toggleDevTools();
+        }
         if (window.electronAPI && window.electronAPI.openLogFile) {
             window.electronAPI.openLogFile();
         }
@@ -699,9 +702,13 @@ function handleStreamingChunk(chunkData) {
 }
 
 function processStreamLines(lines) {
+    const SDB_NEWLINE_MARKER_START = /^L\d{1,5}\s/;
     for (const line of lines) {
         streamLineCount++;
-        const t = line.trim();
+        let t = line.trim();
+        if (SDB_NEWLINE_MARKER_START.test(t)) {
+            t = t.replace(SDB_NEWLINE_MARKER_START, "").trim();
+        }
         if (!t) continue;
 
         const isS = streamStartPatterns.test(t);
@@ -1241,7 +1248,7 @@ async function displayDetailWindow(data) {
         h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
         for (const [, g] of Object.entries(e.patternGroups)) {
             const groupText = g.lines.join('\n');
-            h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+            h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
         }
         h += '</div>';
     }
@@ -1285,9 +1292,9 @@ async function displayDetailWindow(data) {
     const allLogsText = e.allLines.map((l, i) => {
         const ln = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
         return `L${ln}  ${l}`;
-    }).join('\n');
+    }).join('\r\n');
 
-    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')">📋 Copy All</button></div><div class="log-box">${e.allLines.map((l, i) => {
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button></div><div class="log-box">${e.allLines.map((l, i) => {
         const lineNum = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
         return `<span style="color:#334155;min-width:40px;display:inline-block;text-align:right;margin-right:10px;user-select:none">L${lineNum}</span>${makeClickable(stripTs(l))}`;
     }).join('<br>')}</div></div></div></div>`;
@@ -1330,7 +1337,7 @@ async function showDetail(idx) {
         h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
         for (const [, g] of Object.entries(e.patternGroups)) {
             const groupText = g.lines.join('\n');
-            h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+            h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
         }
         h += '</div>';
     }
@@ -1374,9 +1381,9 @@ async function showDetail(idx) {
     const allLogsText = e.allLines.map((l, i) => {
         const ln = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
         return `L${ln}  ${l}`;
-    }).join('\n');
+    }).join('\r\n');
 
-    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')">📋 Copy All</button></div><div class="log-box">${e.allLines.map((l, i) => {
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button></div><div class="log-box">${e.allLines.map((l, i) => {
         const lineNum = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
         return `<span style="color:#334155;min-width:40px;display:inline-block;text-align:right;margin-right:10px;user-select:none">L${lineNum}</span>${makeClickable(stripTs(l))}`;
     }).join('<br>')}</div></div></div>`;
