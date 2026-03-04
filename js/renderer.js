@@ -1551,5 +1551,61 @@ window.onload=()=>{const p=window.location.pathname;if(p.endsWith('.html')){cons
 <\/script><style>@keyframes fade{from{opacity:0;transform:translate(-50%,-20%)}to{opacity:1;transform:translate(-50%,-50%)}}</style></body></html>`;
 }
 
+function resetApp() {
+    entries = []; filteredData = []; sortCol = null; sortDir = 'asc'; currentFileName = null; currentFilePath = null; currentEncoding = null; currentRawText = null;
+    document.getElementById('dropzone').style.display = ''; 
+    document.getElementById('resultsArea').style.display = 'none'; 
+    document.getElementById('exportBtn').style.display = 'none';
+    document.getElementById('refreshBtn').style.display = 'none';
+    
+    const pp = document.getElementById('progressPanel'); 
+    if (pp) pp.classList.remove('show');
+    
+    const pl = document.getElementById('progressLayout'); 
+    if (pl) pl.style.display = 'block';
+
+    const psl = document.getElementById('progressSplitLayout'); 
+    if (psl) psl.style.display = 'none';
+}
+
+// ── Updates ──
+let updateState = null;
+async function checkForUpdates() {
+    showUpdateModal('Checking for updates...', 'checking');
+    if (window.electronAPI && window.electronAPI.checkUpdates) {
+        try { await window.electronAPI.checkUpdates(); } catch (e) { console.error('Update check error:', e); showUpdateModal('Update check failed', 'error'); }
+    } else { showUpdateModal('Update check not available in this version', 'error'); }
+}
+
+function showUpdateModal(message, state) {
+    updateState = state;
+    const modal = document.getElementById('updateModal');
+    const content = document.getElementById('updateContent');
+    const actionBtn = document.getElementById('updateActionBtn');
+    if (actionBtn) actionBtn.style.display = 'none';
+
+    let html = '';
+    if (state === 'checking') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:14px;color:#94a3b8">Checking for updates...</div><div style="margin-top:16px;animation:pulse 1s infinite">⏳</div></div>`;
+    else if (state === 'uptodate') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">✓</div><div style="font-size:14px;color:#94a3b8">${message}</div></div>`;
+    else if (state === 'downloading') html = `<div style="text-align:center;padding:20px"><div style="font-size:14px;color:#94a3b8;margin-bottom:12px">${message}</div><div style="animation:pulse 1s infinite">⬇️</div></div>`;
+    else if (state === 'ready') { html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">🎉</div><div style="font-size:14px;color:#94a3b8">${message}</div></div>`; if (actionBtn) actionBtn.style.display = 'block'; }
+    else if (state === 'error') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">⚠️</div><div style="font-size:14px;color:#f87171">${message}</div></div>`;
+
+    if (content) content.innerHTML = html;
+    if (modal) modal.classList.add('open');
+}
+
+function closeUpdateModal() { const modal = document.getElementById('updateModal'); if (modal) modal.classList.remove('open'); }
+
+async function handleUpdateAction() { if (updateState === 'ready' && window.electronAPI && window.electronAPI.installUpdate) { window.electronAPI.installUpdate(); } }
+
+async function openConfigFolder() {
+    if (window.electronAPI) { await window.electronAPI.openConfigFolder(); }
+    else { showErrorToast('Config file is embedded in the application. Use the Electron desktop version to customize config.'); }
+}
+
+// ── Boot ──
+document.addEventListener('DOMContentLoaded', init);
+
 
 
