@@ -1100,7 +1100,7 @@ function renderTable() {
                 if (cp && cp.url_template && v) {
                     let cellH = `<div class="td" style="display:flex;align-items:center;gap:4px;overflow:visible">`;
                     cellH += `<a class="click-link" href="javascript:openURLExternal('${cp.url_template.replace('{value}', v)}')" onclick="event.stopPropagation()" style="overflow:hidden;text-overflow:ellipsis">${esc(v)}</a>`;
-                    cellH += `<button class="btn btn-ghost" style="padding:2px;font-size:10px;flex-shrink:0" onclick="copyToClipboard('${v.toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'")}');event.stopPropagation()" title="Copy ID">📋</button>`;
+                    cellH += `<button class="btn btn-ghost" style="padding:2px;font-size:10px;flex-shrink:0" onclick="copyToClipboard('${escJS(v)}');event.stopPropagation()" title="Copy ID">📋</button>`;
                     cellH += `</div>`;
                     return cellH;
                 }
@@ -1108,7 +1108,7 @@ function renderTable() {
             if (c.key === 'conversationId' && v) {
                 return `<div class="td" style="display:flex;align-items:center;gap:4px;overflow:visible">
                     <span style="overflow:hidden;text-overflow:ellipsis">${esc(v)}</span>
-                    <button class="btn btn-ghost" style="padding:2px;font-size:10px;flex-shrink:0" onclick="copyToClipboard('${v.toString().replace(/\\/g, "\\\\").replace(/'/g, "\\'")}');event.stopPropagation()" title="Copy ID">📋</button>
+                    <button class="btn btn-ghost" style="padding:2px;font-size:10px;flex-shrink:0" onclick="copyToClipboard('${escJS(v)}');event.stopPropagation()" title="Copy ID">📋</button>
                 </div>`;
             }
             return `<div class="td">${esc(v)}</div>`;
@@ -1153,6 +1153,16 @@ function openURLExternal(url) {
     } else {
         window.open(url, '_blank');
     }
+}
+
+function escJS(s) {
+    if (!s) return '';
+    return s.toString()
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'")
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r');
 }
 
 function copyToClipboard(text) {
@@ -1238,7 +1248,7 @@ async function displayDetailWindow(data) {
     [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
         h += `<div class="meta-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="meta-label">${m.l}</div>`;
         if (m.l === 'Conversation ID' && m.v) {
-            h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${m.v.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')" title="Copy ID">📋 Copy</button>`;
+            h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${escJS(m.v)}')" title="Copy ID">📋 Copy</button>`;
         }
         h += '</div>';
         if (m.b) h += `<span class="badge badge-${m.v}">${m.v}</span>`;
@@ -1256,7 +1266,7 @@ async function displayDetailWindow(data) {
         h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
         for (const [, g] of Object.entries(e.patternGroups)) {
             const groupText = g.lines.join('\n');
-            h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+            h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${escJS(groupText)}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
         }
         h += '</div>';
     }
@@ -1302,7 +1312,7 @@ async function displayDetailWindow(data) {
         return `L${ln}  ${l}`;
     }).join('\r\n');
 
-    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${allLogsText.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">🌐 Open in Browser</button></div></div></div></div></div>`;
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${escJS(allLogsText)}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${escJS(allLogsText)}')">🌐 Open in Browser</button></div></div></div></div></div>`;
 
     let detailContainer = document.getElementById('detailWindowContainer');
     if (!detailContainer) {
@@ -1324,7 +1334,7 @@ async function showDetail(idx) {
     [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
         h += `<div class="meta-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="meta-label">${m.l}</div>`;
         if (m.l === 'Conversation ID' && m.v) {
-            h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${m.v.replace(/\\/g, "\\\\").replace(/'/g, "\\'")}')" title="Copy ID">📋 Copy</button>`;
+            h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${escJS(m.v)}')" title="Copy ID">📋 Copy</button>`;
         }
         h += '</div>';
         if (m.b) h += `<span class="badge badge-${m.v}">${m.v}</span>`;
@@ -1342,7 +1352,7 @@ async function showDetail(idx) {
         h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
         for (const [, g] of Object.entries(e.patternGroups)) {
             const groupText = g.lines.join('\n');
-            h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${groupText.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+            h += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="grp-name">${esc(g.name)}</div><button class="btn btn-ghost" style="padding:4px 8px;font-size:10px" onclick="copyToClipboard('${escJS(groupText)}')" title="Copy">📋 Copy</button></div><div class="log-box" style="max-height:200px">${g.lines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
         }
         h += '</div>';
     }
@@ -1388,7 +1398,7 @@ async function showDetail(idx) {
         return `L${ln}  ${l}`;
     }).join('\r\n');
 
-    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${allLogsText.replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">🌐 Open in Browser</button></div></div></div></div>`;
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${escJS(allLogsText)}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${escJS(allLogsText)}')">🌐 Open in Browser</button></div></div></div></div>`;
 
     document.getElementById('modalContent').innerHTML = h;
     document.getElementById('modal').classList.add('open');
@@ -1423,6 +1433,7 @@ function updateScreenshotZoom() {
 function screenshotWheel(e) { if (e.ctrlKey) { e.preventDefault(); changeScreenshotZoom(e.deltaY < 0 ? 0.1 : -0.1); } }
 
 // ── Export Logic ──
+// ── Export ──
 // ── Export ──
 async function doExport() {
     if (!entries.length) { alert('분석된 결과가 없습니다.'); return; }
@@ -1497,10 +1508,11 @@ tr.dr:hover{background:#111625}.badge{display:inline-block;padding:2px 10px;bord
 <div id="tc" style="position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999;display:flex;flex-direction:column;gap:10px;pointer-events:none"></div>
 <script>let D,C,S,sc2=null,sd2='asc',fD2;
 function esc2(s){return s?s.toString().replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>'):'N/A'}
-function c2c(t){const decoded=t.replace(/\\\\\\\\/g,'\\\\').replace(/\\\\r/g,'\\r').replace(/\\\\n/g,'\\n');const ta=document.createElement('textarea');ta.value=decoded;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);st('Copied to clipboard.')}
+function eJS2(s){if(!s)return '';return s.toString().replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'").replace(/"/g,'\\\\\"').replace(/\\n/g,'\\\\n').replace(/\\r/g,'\\\\r')}
+function c2c(t){const decoded=t.replace(/\\\\r/g,'\\r').replace(/\\\\n/g,'\\n');const ta=document.createElement('textarea');ta.value=decoded;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);st('Copied to clipboard.')}
 function st(m){const t=document.createElement('div');t.textContent=m;t.style.cssText='background:#34d399;color:#064e3b;padding:12px 24px;border-radius:10px;font-weight:600;box-shadow:0 10px 15px -3px rgba(0,0,0,.1);animation:fade 0.3s forwards';document.getElementById('tc').appendChild(t);setTimeout(()=>{t.style.animation='fade 0.3s reverse forwards';setTimeout(()=>t.remove(),300)},2000)}
 function mkC(t){if(!C||!t)return esc2(t);let r=esc2(t);for(const[,c]of Object.entries(C.clickable_patterns)){try{const re=new RegExp(c.pattern,'g');r=r.replace(re,(m,v)=>c.url_template?'<a href="'+c.url_template.replace('{value}',v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline">'+m+'</a>':'<span style="color:#a8e6cf;font-weight:600">'+m+'</span>')}catch(e){}}return r}
-function oIB(t){const decoded=t.replace(/\\\\\\\\/g,'\\\\').replace(/\\\\r/g,'\\r').replace(/\\\\n/g,'\\n');const b=new Blob([decoded],{type:'text/plain'});const u=URL.createObjectURL(b);window.open(u)}
+function oIB(t){const decoded=t.replace(/\\\\r/g,'\\r').replace(/\\\\n/g,'\\n');const b=new Blob([decoded],{type:'text/plain'});const u=URL.createObjectURL(b);window.open(u)}
 function loadJ(f){const r=new FileReader();r.onload=e=>{try{const d=JSON.parse(e.target.result);D=d.entries;C=d.config;S=d.stats;init2()}catch(x){alert('Invalid JSON: '+x.message)}};r.readAsText(f)}
 function init2(){document.getElementById('fp').style.display='none';document.getElementById('si').style.display='';document.getElementById('tw').style.display='';
 document.getElementById('fs').textContent=D.length+' utterances';
@@ -1511,28 +1523,27 @@ function gf2(){const q=(document.getElementById('si').value||'').toLowerCase();l
 function rt(){const rows=gf2();const cols=C.table_columns;
 document.getElementById('tb').innerHTML=rows.map((e,i)=>'<tr class="dr" style="cursor:pointer" onclick="sd3('+i+')">'+cols.map(c=>{const v=e[c.key]||'N/A';
 if(c.type==='badge')return'<td><span class="badge badge-'+v+'">'+v+'</span></td>';if(c.type==='utterance')return'<td><span class="utt">'+esc2(v)+'</span></td>';
-if((c.clickable_key&&C.clickable_patterns[c.clickable_key])||c.key==='conversationId'){const vS=v.toString().replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");
+if((c.clickable_key&&C.clickable_patterns[c.clickable_key])||c.key==='conversationId'){
 let h='<td style="overflow:visible"><div style="display:flex;align-items:center;gap:4px">';
 if(c.clickable_key){const cp=C.clickable_patterns[c.clickable_key];if(cp.url_template&&v!=='N/A')h+='<a class="cl" href="'+cp.url_template.replace('{value}',v)+'" target="_blank" onclick="event.stopPropagation()">'+esc2(v)+'</a>'}
 else h+='<span style="overflow:hidden;text-overflow:ellipsis">'+esc2(v)+'</span>';
-if(v!=='N/A')h+='<button class="btn-export" style="padding:2px;font-size:10px;flex-shrink:0" onclick="c2c(\\''+vS+'\\');event.stopPropagation()" title="Copy">📋</button>';
+if(v!=='N/A')h+='<button class="btn-export" style="padding:2px;font-size:10px;flex-shrink:0" onclick="c2c(\\''+eJS2(v)+'\\');event.stopPropagation()" title="Copy">📋</button>';
 h+='</div></td>';return h}
 if(c.type==='log')return'<td>'+mkC(v)+'</td>';return'<td>'+esc2(v)+'</td>'}).join('')+'</tr>').join('')}
 function sd3(i){const e=fD2[i];if(!e)return;let h='<div class="mh"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">'+esc2(e.utterance)+'</div></div><button class="cb" onclick="cm()">✕</button></div><div style="padding:20px 28px"><div class="mg">';
 [{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Utterance',v:e.utterance},{l:'Result',v:e.result,b:1}].forEach(m=>{
-const vS=m.v?m.v.toString().replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'"):'';
 h+='<div class="mc"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="ml">'+m.l+'</div>';
-if(m.l==='Conversation ID'&&m.v)h+='<button class="btn-export" style="padding:2px 6px;font-size:10px" onclick="c2c(\\''+vS+'\\')" title="Copy">📋 Copy</button>';
+if(m.l==='Conversation ID'&&m.v)h+='<button class="btn-export" style="padding:2px 6px;font-size:10px" onclick="c2c(\\''+eJS2(m.v)+'\\')" title="Copy">📋 Copy</button>';
 h+='</div>';if(m.b)h+='<span class="badge badge-'+m.v+'">'+m.v+'</span>';
 else if(m.ck&&C.clickable_patterns[m.ck]&&C.clickable_patterns[m.ck].url_template&&m.v)h+='<a href="'+C.clickable_patterns[m.ck].url_template.replace('{value}',m.v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline;font-size:13px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';
 else h+='<div class="mv">'+esc2(m.v)+'</div>';h+='</div>'});h+='</div>';
 if(e.successLine)h+='<div class="se"><div class="st" style="color:#34d399">✓ Success Match</div><div class="sb2">'+mkC(e.successLine)+'</div></div>';
 if(e.failLines&&e.failLines.length)h+='<div class="se"><div class="st" style="color:#f87171">✗ Failure Matches</div><div class="fb">'+e.failLines.map(l=>mkC(l)).join('<br>')+'</div></div>';
 if(e.patternGroups&&Object.keys(e.patternGroups).length){h+='<div class="se"><div class="st" style="color:#60dcfa">Pattern Groups</div>';for(const[,g]of Object.entries(e.patternGroups)){
-const gT=g.lines.join('\\\\n').replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");
-h+='<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="gn">'+esc2(g.name)+'</div><button class="btn-export" onclick="c2c(\\''+gT+'\\')">📋 Copy</button></div><div class="lb" style="max-height:200px">'+g.lines.map(l=>mkC(l)).join('<br>')+'</div></div>'}h+='</div>'}
-const allText = e.allLines.map((l,i)=>{const ln=(e.lineNumbers&&e.lineNumbers[i])?e.lineNumbers[i]:(i+1);return 'L'+ln+'  '+l}).join('\\\\n').replace(/\\\\/g,'\\\\\\\\').replace(/'/g,"\\\\'");
-h+='<div class="se"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="st" style="color:#94a3b8;margin:0">All Valid Logs ('+e.allLines.length+' lines)</div><div style="display:flex;gap:8px"><button class="btn-export" onclick="c2c(\\''+allText+'\\')">📋 Copy All</button><button class="btn-export" onclick="oIB(\\''+allText+'\\')">🌐 Open in New Tab</button></div></div></div></div>';
+const gT=g.lines.join('\\n');
+h+='<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="gn">'+esc2(g.name)+'</div><button class="btn-export" onclick="c2c(\\''+eJS2(gT)+'\\')">📋 Copy</button></div><div class="lb" style="max-height:200px">'+g.lines.map(l=>mkC(l)).join('<br>')+'</div></div>'}h+='</div>'}
+const allText = e.allLines.map((l,i)=>{const ln=(e.lineNumbers&&e.lineNumbers[i])?e.lineNumbers[i]:(i+1);return 'L'+ln+'  '+l}).join('\\n');
+h+='<div class="se"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="st" style="color:#94a3b8;margin:0">All Valid Logs ('+e.allLines.length+' lines)</div><div style="display:flex;gap:8px"><button class="btn-export" onclick="c2c(\\''+eJS2(allText)+'\\')">📋 Copy All</button><button class="btn-export" onclick="oIB(\\''+eJS2(allText)+'\\')">🌐 Open in New Tab</button></div></div></div></div>';
 document.getElementById('mc2').innerHTML=h;document.getElementById('md').classList.add('op')}
 function cm(){document.getElementById('md').classList.remove('op')}
 document.addEventListener('keydown',e=>{if(e.key==='Escape')cm()});
@@ -1540,58 +1551,5 @@ window.onload=()=>{const p=window.location.pathname;if(p.endsWith('.html')){cons
 <\/script><style>@keyframes fade{from{opacity:0;transform:translate(-50%,-20%)}to{opacity:1;transform:translate(-50%,-50%)}}</style></body></html>`;
 }
 
-function resetApp() {
-    entries = []; filteredData = []; sortCol = null; sortDir = 'asc'; currentFileName = null; currentFilePath = null; currentEncoding = null; currentRawText = null;
-    document.getElementById('dropzone').style.display = ''; 
-    document.getElementById('resultsArea').style.display = 'none'; 
-    document.getElementById('exportBtn').style.display = 'none';
-    document.getElementById('refreshBtn').style.display = 'none';
-    
-    const pp = document.getElementById('progressPanel'); 
-    if (pp) pp.classList.remove('show');
-    
-    const pl = document.getElementById('progressLayout'); 
-    if (pl) pl.style.display = 'block';
 
-    const psl = document.getElementById('progressSplitLayout'); 
-    if (psl) psl.style.display = 'none';
-}
 
-// ── Updates ──
-let updateState = null;
-async function checkForUpdates() {
-    showUpdateModal('Checking for updates...', 'checking');
-    if (window.electronAPI && window.electronAPI.checkUpdates) {
-        try { await window.electronAPI.checkUpdates(); } catch (e) { console.error('Update check error:', e); showUpdateModal('Update check failed', 'error'); }
-    } else { showUpdateModal('Update check not available in this version', 'error'); }
-}
-
-function showUpdateModal(message, state) {
-    updateState = state;
-    const modal = document.getElementById('updateModal');
-    const content = document.getElementById('updateContent');
-    const actionBtn = document.getElementById('updateActionBtn');
-    if (actionBtn) actionBtn.style.display = 'none';
-
-    let html = '';
-    if (state === 'checking') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:14px;color:#94a3b8">Checking for updates...</div><div style="margin-top:16px;animation:pulse 1s infinite">⏳</div></div>`;
-    else if (state === 'uptodate') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">✓</div><div style="font-size:14px;color:#94a3b8">${message}</div></div>`;
-    else if (state === 'downloading') html = `<div style="text-align:center;padding:20px"><div style="font-size:14px;color:#94a3b8;margin-bottom:12px">${message}</div><div style="animation:pulse 1s infinite">⬇️</div></div>`;
-    else if (state === 'ready') { html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">🎉</div><div style="font-size:14px;color:#94a3b8">${message}</div></div>`; if (actionBtn) actionBtn.style.display = 'block'; }
-    else if (state === 'error') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">⚠️</div><div style="font-size:14px;color:#f87171">${message}</div></div>`;
-
-    if (content) content.innerHTML = html;
-    if (modal) modal.classList.add('open');
-}
-
-function closeUpdateModal() { const modal = document.getElementById('updateModal'); if (modal) modal.classList.remove('open'); }
-
-async function handleUpdateAction() { if (updateState === 'ready' && window.electronAPI && window.electronAPI.installUpdate) { window.electronAPI.installUpdate(); } }
-
-async function openConfigFolder() {
-    if (window.electronAPI) { await window.electronAPI.openConfigFolder(); }
-    else { showErrorToast('Config file is embedded in the application. Use the Electron desktop version to customize config.'); }
-}
-
-// ── Boot ──
-document.addEventListener('DOMContentLoaded', init);
