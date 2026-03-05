@@ -1182,20 +1182,200 @@ function showToast(message) {
 async function openDetailFromTable(idx) {
     const e = filteredData[idx];
     if (!e) return;
-    if (isDetailWindow || !window.electronAPI || !window.electronAPI.openDetailWindow) {
+
+    // Fallback to modal if not in Electron
+    if (!window.electronAPI || !window.electronAPI.openDetailHtml) {
         showDetail(idx); return;
     }
+
     try {
-        await window.electronAPI.openDetailWindow({ 
-            utteranceData: e, 
-            utteranceIndex: idx + 1,
-            logFilePath: currentFilePath,
-            config: CONFIG
-        });
+        const html = await generateDetailHtml(e, idx + 1);
+        await window.electronAPI.openDetailHtml(html);
     } catch (err) {
-        console.error("Failed to open detail window:", err);
+        console.error("Failed to open detail in browser:", err);
         showDetail(idx);
     }
+}
+
+async function generateDetailHtml(e, utteranceIndex) {
+    const escH = s => s ? s.toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : 'N/A';
+
+    // Build clickable pattern renderer for the standalone page
+    let clickableScript = '';
+    if (CONFIG && CONFIG.clickable_patterns) {
+        const pats = {};
+        for (const [k, c] of Object.entries(CONFIG.clickable_patterns)) {
+            pats[k] = { pattern: c.pattern, url_template: c.url_template || null };
+        }
+        clickableScript = `const CP=${JSON.stringify(pats)};
+function mkC(t){if(!t)return esc(t);let r=esc(t);for(const[,c]of Object.entries(CP)){try{const re=new RegExp(c.pattern,'g');r=r.replace(re,(m,v)=>c.url_template?'<a href="'+c.url_template.replace('{value}',v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline">'+m+'</a>':'<span style="color:#a8e6cf;font-weight:600">'+m+'</span>')}catch(e){}}return r}`;
+    } else {
+        clickableScript = `function mkC(t){return esc(t)}`;
+    }
+
+    // Meta cards
+    let metaHtml = '';
+    const metas = [
+        { l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' },
+        { l: 'Request ID', v: e.requestId, ck: 'requestId' },
+        { l: 'Utterance', v: e.utterance },
+        { l: 'Result', v: e.result, b: true }
+    ];
+    for (const m of metas) {
+        metaHtml += `<div class="mc"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="ml">${m.l}</div>`;
+        if (m.l === 'Conversation ID' && m.v) {
+            metaHtml += `<button class="btn-c" onclick="c2c('${escH(m.v).replace(/'/g,"\\'")}')" title="Copy">📋 Copy</button>`;
+        }
+        metaHtml += '</div>';
+        if (m.b) {
+            metaHtml += `<span class="badge badge-${m.v}">${m.v}</span>`;
+        } else if (m.ck && CONFIG && CONFIG.clickable_patterns && CONFIG.clickable_patterns[m.ck] && CONFIG.clickable_patterns[m.ck].url_template && m.v) {
+            const url = CONFIG.clickable_patterns[m.ck].url_template.replace('{value}', m.v);
+            metaHtml += `<a href="${url}" target="_blank" style="color:#60dcfa;text-decoration:underline;font-size:13px;font-family:monospace;word-break:break-all">${escH(m.v)}</a>`;
+        } else {
+            metaHtml += `<div class="mv">${escH(m.v)}</div>`;
+        }
+        metaHtml += '</div>';
+    }
+
+    // Success / Fail
+    let resultHtml = '';
+    if (e.successLine) {
+        resultHtml += `<div class="se"><div class="st" style="color:#34d399">✓ Success Match</div><div class="sb2" id="succBox"></div></div>`;
+    }
+    if (e.failLines && e.failLines.length > 0) {
+        resultHtml += `<div class="se"><div class="st" style="color:#f87171">✗ Failure Matches</div><div class="fb" id="failBox"></div></div>`;
+    }
+
+    // Pattern Groups
+    let groupsHtml = '';
+    if (e.patternGroups && Object.keys(e.patternGroups).length > 0) {
+        groupsHtml = '<div class="se"><div class="st" style="color:#60dcfa">Pattern Groups</div>';
+        let gIdx = 0;
+        for (const [, g] of Object.entries(e.patternGroups)) {
+            groupsHtml += `<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="gn">${escH(g.name)}</div><button class="btn-c" onclick="c2c(document.getElementById('grp${gIdx}').innerText)">📋 Copy</button></div><div class="lb" id="grp${gIdx}" style="max-height:300px"></div></div>`;
+            gIdx++;
+        }
+        groupsHtml += '</div>';
+    }
+
+    // Screenshots — read as base64 and embed
+    let screenshotHtml = '';
+    if (window.electronAPI && currentFilePath) {
+        try {
+            const screenshots = await window.electronAPI.getScreenshots({
+                logFilePath: currentFilePath,
+                utterance: e.utterance
+            });
+            if (screenshots && screenshots.length > 0) {
+                screenshotHtml = '<div class="se"><div class="st" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:8px">';
+                for (const ss of screenshots) {
+                    try {
+                        const base64 = await window.electronAPI.readScreenshot(ss.path);
+                        if (base64) {
+                            screenshotHtml += `<div style="border:1px solid #1e2433;border-radius:6px;overflow:hidden;background:#0a0d14;cursor:pointer" onclick="this.querySelector('img').requestFullscreen?this.querySelector('img').requestFullscreen():null" title="${escH(ss.name)}"><img src="data:image/png;base64,${base64}" style="width:100%;display:block"></div>`;
+                        }
+                    } catch (err) {
+                        // Skip failed screenshots
+                    }
+                }
+                screenshotHtml += '</div></div>';
+            }
+        } catch (err) {
+            // Skip screenshots on error
+        }
+    }
+
+    // All logs data (as JSON for safe embedding)
+    const allLogsData = e.allLines.map((l, i) => {
+        const ln = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
+        return { ln, text: l };
+    });
+
+    // Success/Fail/PatternGroup lines for mkC rendering (as JSON)
+    const successLineData = e.successLine || '';
+    const failLinesData = (e.failLines || []);
+    const patternGroupsData = [];
+    if (e.patternGroups) {
+        for (const [, g] of Object.entries(e.patternGroups)) {
+            patternGroupsData.push(g.lines);
+        }
+    }
+
+    const ver = APP_VERSION ? `[${APP_VERSION}]` : '';
+
+    return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Utterance Detail #${utteranceIndex} - ${escH(e.utterance)}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;padding:0}
+.hdr{background:#0b0e15;border-bottom:1px solid #1e2433;padding:16px 28px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10}
+.title{font-size:18px;font-weight:700}
+.sub{font-size:12px;color:#64748b;margin-top:2px}
+.content{padding:24px 28px;max-width:1200px;margin:0 auto}
+.mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:24px}
+.mc{background:#0f1117;border-radius:8px;padding:12px 16px;border:1px solid #1e2433}
+.ml{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px}
+.mv{font-size:13px;color:#e2e8f0;font-family:monospace;word-break:break-all}
+.badge{display:inline-block;padding:3px 12px;border-radius:4px;font-size:12px;font-weight:700;font-family:monospace;letter-spacing:.5px}
+.badge-SUCCESS{background:#0d3b24;color:#34d399;border:1px solid #166534}
+.badge-FAIL{background:#3b0d0d;color:#f87171;border:1px solid #7f1d1d}
+.badge-PARTIAL{background:#3b2e0d;color:#fbbf24;border:1px solid #78350f}
+.badge-Unknown{background:#1e1e2e;color:#94a3b8;border:1px solid #334155}
+.se{margin-bottom:20px}
+.st{font-size:12px;font-weight:700;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
+.sb2{background:#0d3b24;border:1px solid #166534;border-radius:6px;padding:10px 14px;font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre-wrap;word-break:break-all}
+.fb{background:#3b0d0d;border:1px solid #7f1d1d;border-radius:6px;padding:10px 14px;font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre-wrap;word-break:break-all}
+.gn{font-size:11px;color:#a78bfa;font-weight:600;background:#1e1640;display:inline-block;padding:2px 10px;border-radius:4px}
+.lb{background:#0a0d14;border:1px solid #1e2433;border-radius:6px;padding:10px 14px;overflow-y:auto;font-family:monospace;font-size:12px;line-height:20px;white-space:pre-wrap;word-break:break-all;color:#94a3b8}
+.log-all{background:#0a0d14;border:1px solid #1e2433;border-radius:6px;padding:10px 14px;max-height:600px;overflow-y:auto;font-family:monospace;font-size:12px;line-height:20px;white-space:pre-wrap;word-break:break-all;color:#94a3b8}
+.btn-c{background:#1e2433;border:1px solid #334155;color:#94a3b8;padding:3px 10px;border-radius:6px;cursor:pointer;font-size:11px;transition:all .2s}
+.btn-c:hover{background:#2a3040;color:#e2e8f0;border-color:#4a5568}
+.toast{position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#34d399;color:#064e3b;padding:12px 24px;border-radius:10px;font-weight:600;z-index:9999;animation:fadeIn .3s}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#0f1117}
+::-webkit-scrollbar-thumb{background:#2a3040;border-radius:3px}
+</style></head>
+<body>
+<div class="hdr">
+  <div>
+    <div class="title">Utterance Detail #${utteranceIndex}</div>
+    <div class="sub">${escH(e.utterance)} ${ver}</div>
+  </div>
+  <div style="display:flex;gap:8px">
+    <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">📋 Copy All Logs</button>
+  </div>
+</div>
+<div class="content">
+  <div class="mg">${metaHtml}</div>
+  ${resultHtml}
+  ${groupsHtml}
+  ${screenshotHtml}
+  <div class="se">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <div class="st" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div>
+      <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">📋 Copy All</button>
+    </div>
+    <div class="log-all" id="allLogs"></div>
+  </div>
+</div>
+<script>
+function esc(s){return s?s.toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'):'N/A'}
+${clickableScript}
+function c2c(t){navigator.clipboard.writeText(t).then(()=>{const d=document.createElement('div');d.className='toast';d.textContent='Copied!';document.body.appendChild(d);setTimeout(()=>d.remove(),1500)}).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta)})}
+
+// Render dynamic content with mkC (clickable patterns)
+const succLine=${JSON.stringify(successLineData)};
+const failLines=${JSON.stringify(failLinesData)};
+const pgData=${JSON.stringify(patternGroupsData)};
+const logsData=${JSON.stringify(allLogsData)};
+
+if(succLine){const el=document.getElementById('succBox');if(el)el.innerHTML=mkC(succLine)}
+if(failLines.length){const el=document.getElementById('failBox');if(el)el.innerHTML=failLines.map(l=>mkC(l)).join('<br>')}
+pgData.forEach((lines,i)=>{const el=document.getElementById('grp'+i);if(el)el.innerHTML=lines.map(l=>mkC(l)).join('<br>')});
+document.getElementById('allLogs').innerHTML=logsData.map(d=>'<span style="color:#4a5568">L'+d.ln+'</span>  '+mkC(d.text)).join('\\n');
+</script>
+</body></html>`;
 }
 
 async function displayDetailWindow(data) {
