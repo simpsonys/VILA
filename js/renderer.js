@@ -1215,6 +1215,48 @@ function showToast(message) {
     }, 1000);
 }
 
+function getAllPatterns(config) {
+    const patterns = new Set();
+    if (!config) return [];
+
+    // Simple string patterns
+    ['start_patterns', 'end_patterns', 'success_patterns', 'failure_patterns'].forEach(key => {
+        if (config[key]) {
+            config[key].forEach(p => patterns.add(p));
+        }
+    });
+
+    // Patterns from objects
+    if (config.clickable_patterns) {
+        Object.values(config.clickable_patterns).forEach(p => {
+            if (p.pattern) patterns.add(p.pattern);
+        });
+    }
+    if (config.utterance_patterns) {
+        Object.values(config.utterance_patterns).forEach(p => {
+            if (p.pattern) patterns.add(p.pattern);
+        });
+    }
+
+    // Patterns from pattern_groups
+    if (config.pattern_groups) {
+        Object.values(config.pattern_groups).forEach(g => {
+            if (g.patterns) {
+                g.patterns.forEach(p => patterns.add(p));
+            }
+        });
+    }
+    
+    return Array.from(patterns).map(p => {
+        try {
+            return new RegExp(p);
+        } catch (e) {
+            console.warn('Invalid regex pattern in config:', p, e);
+            return null;
+        }
+    }).filter(Boolean);
+}
+
 async function openDetailFromTable(idx) {
     const e = filteredData[idx];
     if (!e) return;
@@ -1319,10 +1361,13 @@ function mkC(t){if(!t)return esc(t);let r=esc(t);for(const[,c]of Object.entries(
     }
 
     // All logs data + pattern data as JSON for safe embedding
-    const allLogsData = e.allLines.map((l, i) => {
-        const ln = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
-        return { ln, text: l };
-    });
+    const allPatterns = getAllPatterns(CONFIG);
+    const filteredLogs = e.allLines.map((line, index) => ({
+        line,
+        lineNumber: (e.lineNumbers && e.lineNumbers[index]) ? e.lineNumbers[index] : (index + 1)
+    })).filter(item => allPatterns.some(re => re.test(item.line)));
+
+    const allLogsData = filteredLogs.map(item => ({ ln: item.lineNumber, text: item.line }));
     const successLineData = e.successLine || '';
     const failLinesData = (e.failLines || []);
     const patternGroupsData = [];
@@ -1376,7 +1421,7 @@ body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-seri
   ${screenshotHtml}
   <div class="se">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-      <div class="st" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div>
+      <div class="st" style="color:#94a3b8;margin:0">All Valid Logs (${allLogsData.length} lines)</div>
       <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">📋 Copy All</button>
     </div>
     <div class="log-all" id="allLogs"></div>
@@ -1486,12 +1531,15 @@ async function displayDetailWindow(data) {
         }
     }
 
-    const allLogsText = sanitizeCtrl(e.allLines.map((l, i) => {
-        const ln = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
-        return `L${ln}  ${l}`;
-    }).join('\r\n'));
+    const allPatterns = getAllPatterns(CONFIG);
+    const filteredLogs = e.allLines.map((line, index) => ({
+        line,
+        lineNumber: (e.lineNumbers && e.lineNumbers[index]) ? e.lineNumbers[index] : (index + 1)
+    })).filter(item => allPatterns.some(re => re.test(item.line)));
 
-    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">🌐 Open in Browser</button></div></div></div></div></div>`;
+    const allLogsText = sanitizeCtrl(filteredLogs.map(item => `L${item.lineNumber}  ${item.line}`).join('\r\n'));
+
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${filteredLogs.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">🌐 Open in Browser</button></div></div></div></div></div>`;
 
     let detailContainer = document.getElementById('detailWindowContainer');
     if (!detailContainer) {
@@ -1572,12 +1620,15 @@ async function showDetail(idx) {
         }
     }
 
-    const allLogsText = sanitizeCtrl(e.allLines.map((l, i) => {
-        const ln = (e.lineNumbers && e.lineNumbers[i]) ? e.lineNumbers[i] : (i + 1);
-        return `L${ln}  ${l}`;
-    }).join('\r\n'));
+    const allPatterns = getAllPatterns(CONFIG);
+    const filteredLogs = e.allLines.map((line, index) => ({
+        line,
+        lineNumber: (e.lineNumbers && e.lineNumbers[index]) ? e.lineNumbers[index] : (index + 1)
+    })).filter(item => allPatterns.some(re => re.test(item.line)));
 
-    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${e.allLines.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">🌐 Open in Browser</button></div></div></div></div>`;
+    const allLogsText = sanitizeCtrl(filteredLogs.map(item => `L${item.lineNumber}  ${item.line}`).join('\r\n'));
+
+    h += `<div class="section"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="sec-title" style="color:#94a3b8;margin:0">All Valid Logs (${filteredLogs.length} lines)</div><div style="display:flex;gap:8px"><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="copyToClipboard('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">📋 Copy All</button><button class="btn btn-ghost" style="padding:4px 10px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.openInBrowser('${allLogsText.replace(/'/g, "\\'").replace(/\r/g, '\\r').replace(/\n/g, '\\n')}')">🌐 Open in Browser</button></div></div></div></div>`;
 
     document.getElementById('modalContent').innerHTML = h;
     document.getElementById('modal').classList.add('open');
