@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openLogFile: () => ipcRenderer.invoke("open-log-file"),
   toggleDevTools: () => ipcRenderer.invoke("toggle-devtools"),
   openInBrowser: (text) => ipcRenderer.invoke("open-in-browser", text),
+  openDetailHtml: (html) => ipcRenderer.invoke("open-detail-html", html),
 
   // Auto-update methods
   checkUpdates: () => ipcRenderer.invoke("check-updates"),

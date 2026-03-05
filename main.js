@@ -280,7 +280,14 @@ ipcMain.handle("open-and-read-file", async (event, forceFilePath) => {
     
     activeFileStream.on('data', (chunk) => {
       // Convert buffer chunk to string using detected encoding
-      const textChunk = decoder.decode(chunk, { stream: true });
+      let textChunk = decoder.decode(chunk, { stream: true });
+      // ── FIX: Normalize CRLF/CR to LF (SDB logs often have mixed line endings)
+      textChunk = textChunk.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      // ── FIX: Resolve literal \n before timestamps (SDB embedded newlines)
+      textChunk = textChunk.replace(/\\n(?=\[?\d{2}-\d{2}-\d{4}\s)/g, '\n');
+      // ── FIX: Also handle literal \n before logcat-style timestamps (e.g. \n11136.181 E/VOICE_CLIENT)
+      textChunk = textChunk.replace(/\\n(?=\d{4,6}\.\d{1,3}\s+[VDIWEF]\/)/g, '\n');
+      
       event.sender.send('file-data-chunk', {
         text: textChunk,
         byteLength: chunk.length
@@ -385,6 +392,19 @@ ipcMain.handle("open-in-browser", async (event, text) => {
     return true;
   } catch (e) {
     console.error("Failed to open in browser:", e);
+    return false;
+  }
+});
+
+// IPC: Open detail HTML in external browser
+ipcMain.handle("open-detail-html", async (event, html) => {
+  try {
+    const tempPath = path.join(app.getPath("temp"), `vila_detail_${Date.now()}.html`);
+    fs.writeFileSync(tempPath, html, "utf8");
+    await shell.openExternal(`file://${tempPath}`);
+    return true;
+  } catch (e) {
+    console.error("Failed to open detail in browser:", e);
     return false;
   }
 });
