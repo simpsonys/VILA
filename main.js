@@ -329,7 +329,7 @@ ipcMain.on("cancel-file-read", () => {
 });
 
 // IPC: Save export files with custom filename (Save As dialog)
-ipcMain.handle("save-export", async (event, { jsonData, htmlData, baseName }) => {
+ipcMain.handle("save-export", async (event, { htmlData, baseName }) => {
   const now = new Date();
   const timestamp = now.getFullYear().toString().slice(2) +
                     String(now.getMonth() + 1).padStart(2, '0') +
@@ -350,13 +350,9 @@ ipcMain.handle("save-export", async (event, { jsonData, htmlData, baseName }) =>
   if (result.canceled) return null;
   
   const htmlPath = result.filePath;
-  const dir = path.dirname(htmlPath);
-  const basename = path.basename(htmlPath, path.extname(htmlPath));
-  const jsonPath = path.join(dir, `${basename}_data.json`);
   
   fs.writeFileSync(htmlPath, htmlData, "utf-8");
-  fs.writeFileSync(jsonPath, jsonData, "utf-8");
-  return { jsonPath, htmlPath };
+  return { htmlPath };
 });
 
 // IPC: Application version (from package.json + build timestamp)
