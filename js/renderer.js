@@ -246,15 +246,40 @@ async function init() {
         document.getElementById('presetRadios').innerHTML = '<span style="font-size:11px;color:#64748b">Not in Electron mode</span>';
     }
 
+    // In init()
+    if (window.electronAPI) {
+        // ... (existing listeners)
+    }
+    // ...
+
     // Fallback: ensure CONFIG is never null
     if (!CONFIG) {
         CONFIG = getDefaultConfig();
         console.log("Using default config (fallback)");
     }
-
+    
+    updateDefaultCommands(); // Set initial commands
     initColumnFilters();
     setupEventListeners();
 }
+
+// ...
+
+function updateDefaultCommands() {
+    const deviceId = document.getElementById('sdbDeviceInput').value;
+    if (!deviceId) return;
+
+    // Update Live Log Command
+    const liveLogCommandInput = document.getElementById('liveLogCommand');
+    liveLogCommandInput.value = `sdb -s ${deviceId} shell dlogutil -v VOICE_CLIENT`;
+
+    // Update Screenshot Command
+    const screenshotCommandTextarea = document.getElementById('screenshotCommand');
+    screenshotCommandTextarea.value = `sdb -s ${deviceId} shell rm -rf /tmp/dump_screen.png
+sdb -s ${deviceId} shell enlightenment_info -dump_screen
+sdb -s ${deviceId} pull /tmp/dump_screen.png yymmdd_hhmmss.png`;
+}
+
 
 // Initialize column filters
 function initColumnFilters() {
@@ -430,6 +455,16 @@ function setupEventListeners() {
             const file = e.dataTransfer.files?.[0];
             if (file) readFile(file);
         });
+    }
+
+    const sdbDeviceInput = document.getElementById('sdbDeviceInput');
+    if (sdbDeviceInput) {
+        sdbDeviceInput.addEventListener('keyup', (e) => {
+            if (e.key === 'Enter') {
+                updateDefaultCommands();
+            }
+        });
+        sdbDeviceInput.addEventListener('blur', updateDefaultCommands);
     }
 
     const screenshotFolderBtn = document.getElementById('screenshotFolderBtn');
@@ -724,6 +759,21 @@ function handleStreamingChunk(chunkData) {
     
     const text = typeof chunkData === 'string' ? chunkData : chunkData.text;
     const byteLength = typeof chunkData === 'string' ? 0 : chunkData.byteLength;
+
+    // If in live streaming mode, update the raw log viewer
+    if (isLiveStreaming) {
+        const rawLogContent = document.getElementById('rawLogContent');
+        if (rawLogContent) {
+            rawLogContent.textContent += text;
+            // Keep the log from getting too long
+            const lines = rawLogContent.textContent.split('\n');
+            if (lines.length > 500) {
+                rawLogContent.textContent = lines.slice(lines.length - 500).join('\n');
+            }
+            // Auto-scroll to bottom
+            rawLogContent.parentElement.scrollTop = rawLogContent.parentElement.scrollHeight;
+        }
+    }
     
     streamBytesProcessed += byteLength;
 
@@ -1031,6 +1081,8 @@ function finishParsing() {
 
     document.getElementById('progressLayout').style.display = 'none';
     document.getElementById('progressSplitLayout').style.display = '';
+    updateDefaultCommands(); // Update commands now that the view is visible
+    document.getElementById('screenshotSection').style.display = 'block';
 
     renderTable();
 }
@@ -1236,10 +1288,18 @@ function toggleLiveStream() {
         liveLogBtn.innerHTML = '■ Stop Live Log';
         liveLogBtn.classList.add('active');
 
-        // Prepare UI for streaming
-        prepareStreamingParsing('SDB Live Log', 'utf-8', 0); // File size is unknown for streams
-        updateLoadingState('Live log stream started. Waiting for data...');
+        // Prepare for streaming, but hide the file-based progress UI
+        prepareStreamingParsing('SDB Live Log', 'utf-8', 0);
+        document.getElementById('dropzone').style.display = 'none';
+        document.getElementById('progressPanel').style.display = 'none';
+        document.getElementById('resultsArea').style.display = 'block';
         
+        // Show live log viewer
+        document.getElementById('rawLogViewer').style.display = 'block';
+        document.getElementById('rawLogContent').textContent = '';
+        updateDefaultCommands(); // Update commands now that the view is visible
+        document.getElementById('screenshotSection').style.display = 'block';
+
         // Ensure streaming mode is enabled for live analysis
         if (!streamingMode) {
             setStreamingMode(true);
@@ -1256,9 +1316,13 @@ function toggleLiveStream() {
             liveStatusEl.textContent = '';
         }
 
-        // Finalize the UI
-        finishStreamingParsing();
-        updateLoadingState('Live log stream stopped.');
+        // Hide live log viewer
+        document.getElementById('rawLogViewer').style.display = 'none';
+        document.getElementById('screenshotSection').style.display = 'none';
+
+        // Finalize the UI and show the progress summary
+        finishParsing();
+        document.getElementById('progressPanel').style.display = 'block';
     }
 }
 
@@ -1929,6 +1993,7 @@ function resetApp() {
     document.getElementById('resultsArea').style.display = 'none'; 
     document.getElementById('exportBtn').style.display = 'none';
     document.getElementById('refreshBtn').style.display = 'none';
+    document.getElementById('screenshotSection').style.display = 'none';
     
     const pp = document.getElementById('progressPanel'); 
     if (pp) pp.classList.remove('show');

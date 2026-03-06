@@ -99,29 +99,16 @@
                         <button class="btn-paste" style="font-size:11px;padding:5px 14px" onclick="event.stopPropagation();doPaste()">📋 Paste</button>
                     </div>
                 </div>
-                <!-- Screenshot Section -->
-                <div class="screenshot-section" id="screenshotSection">
-                    <div class="screenshot-controls">
-                        <div class="screenshot-command">
-                            <textarea id="screenshotCommand" class="command-input" rows="3" onclick="event.stopPropagation()">sdb shell enlightenment_remote -display-shot /tmp/dump.png
-sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
-                            <div class="screenshot-buttons">
-                                <button class="btn btn-ghost" id="screenshotFolderBtn">📂 Select Folder</button>
-                                <button class="btn btn-primary" id="screenshotBtn">📸 Screenshot</button>
-                            </div>
-                        </div>
-                        <div class="screenshot-thumbnail-container" id="screenshotThumbnailContainer">
-                            <!-- Thumbnail will be displayed here -->
-                        </div>
-                    </div>
-                    <div id="screenshotFolder" class="screenshot-folder-path"></div>
-                </div>
             </div>
         </div>
 
 
         <!-- Drop Zone -->
         <div class="dropzone" id="dropzone">
+            <div class="device-input-container">
+                <label for="sdbDeviceInput">SDB Device:</label>
+                <input type="text" id="sdbDeviceInput" class="command-input" value="192.168.250.250:26101" onclick="event.stopPropagation();">
+            </div>
             <div class="dropzone-icon">📄</div>
             <div class="dropzone-title">Drop log file here, or click to browse</div>
             <div class="dropzone-sub">Auto encoding detection (UTF-8, EUC-KR, UTF-16) · <kbd>Ctrl+V</kbd> to paste</div>
@@ -146,11 +133,15 @@ sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
         <div id="resultsArea" style="display:none">
             <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px;gap:12px">
                 <div class="stats-bar" id="statsBar"></div>
-                <div style="width:100%;display:flex;justify-content:center">
-                    <input class="search-input" id="searchBox" style="width:100%;max-width:600px" placeholder="Search all columns..." oninput="renderTable()">
+                    <div style="width:100%;display:flex;justify-content:center">
+                        <input class="search-input" id="searchBox" style="width:100%;max-width:600px" placeholder="Search all columns..." oninput="renderTable()">
+                    </div>
                 </div>
-            </div>
-            <div class="table-wrap">
+                <!-- Live Log Viewer -->
+                <div class="raw-log-viewer" id="rawLogViewer" style="display:none;">
+                    <pre id="rawLogContent"></pre>
+                </div>
+                <div class="table-wrap">
                 <div class="table-head" id="tableHead"></div>
                 <div class="table-filters" id="tableFilters"></div>
                 <div class="table-body" id="tableBody"></div>
@@ -159,6 +150,23 @@ sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
                     <div>분석 완료 후 결과가 표시됩니다...</div>
                     <div style="font-size:11px;color:#334155;margin-top:4px">Batch 모드 · 실시간으로 보려면 헤더의 Stream 버튼을 누르세요</div>
                 </div>
+            </div>
+            <!-- Screenshot Section -->
+            <div class="screenshot-section" id="screenshotSection" style="display:none;">
+                <div class="screenshot-controls">
+                    <div class="screenshot-command">
+                        <textarea id="screenshotCommand" class="command-input" rows="3" onclick="event.stopPropagation()">sdb shell enlightenment_remote -display-shot /tmp/dump.png
+sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
+                        <div class="screenshot-buttons">
+                            <button class="btn btn-ghost" id="screenshotFolderBtn">📂 Select Folder</button>
+                            <button class="btn btn-primary" id="screenshotBtn">📸 Screenshot</button>
+                        </div>
+                    </div>
+                    <div class="screenshot-thumbnail-container" id="screenshotThumbnailContainer">
+                        <!-- Thumbnail will be displayed here -->
+                    </div>
+                </div>
+                <div id="screenshotFolder" class="screenshot-folder-path"></div>
             </div>
         </div>
     </div>
