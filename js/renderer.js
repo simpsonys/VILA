@@ -24,6 +24,8 @@ let isDetailWindow = false; // track if this window is a detail display
 let currentDetailData = null; // holds utterance data if this is a detail window
 let streamingMode = true; // streaming analysis mode (false = wait until complete, true = show results in real-time)
 let currentConfigFileName = null; // currently active preset config filename
+let isLiveStreaming = false;
+let screenshotSavePath = null;
 
 // Streaming state
 let streamLineBuffer = "";
@@ -188,6 +190,26 @@ async function init() {
                 isAnalyzing = false;
             });
         }
+
+        // Live Log Stream listeners
+        if (window.electronAPI.onLogStreamData) {
+            window.electronAPI.onLogStreamData(handleStreamingChunk);
+        }
+        if (window.electronAPI.onLogStreamError) {
+            window.electronAPI.onLogStreamError((error) => {
+                showErrorToast(`Live stream error: ${error}`);
+                toggleLiveStream(); // Stop the stream on error
+            });
+        }
+        if (window.electronAPI.onLogStreamClosed) {
+            window.electronAPI.onLogStreamClosed((code) => {
+                showToast(`Live stream stopped (code: ${code}).`);
+                if (isLiveStreaming) {
+                    toggleLiveStream(); // Ensure UI is updated
+                }
+            });
+        }
+
         
         // 2. 버전 정보 로드
         if (window.electronAPI.getAppVersion) {
@@ -397,21 +419,30 @@ function setupEventListeners() {
         if (file) readFile(file);
     });
 
-    // Secondary drop zone events
-    const setupSecondaryDropZone = () => {
-        const sdz = document.getElementById('secondaryDropZone');
-        if (sdz) {
-            sdz.addEventListener('click', () => openFile());
-            sdz.addEventListener('dragover', e => { e.preventDefault(); sdz.classList.add('over'); });
-            sdz.addEventListener('dragleave', () => sdz.classList.remove('over'));
-            sdz.addEventListener('drop', e => {
-                e.preventDefault(); sdz.classList.remove('over');
-                const file = e.dataTransfer.files?.[0];
-                if (file) readFile(file);
-            });
-        }
-    };
-    setupSecondaryDropZone();
+    // In setupEventListeners()
+    const sdz = document.getElementById('secondaryDropZone');
+    if (sdz) {
+        sdz.addEventListener('click', () => openFile());
+        sdz.addEventListener('dragover', e => { e.preventDefault(); sdz.classList.add('over'); });
+        sdz.addEventListener('dragleave', () => sdz.classList.remove('over'));
+        sdz.addEventListener('drop', e => {
+            e.preventDefault(); sdz.classList.remove('over');
+            const file = e.dataTransfer.files?.[0];
+            if (file) readFile(file);
+        });
+    }
+
+    const screenshotFolderBtn = document.getElementById('screenshotFolderBtn');
+    if (screenshotFolderBtn) {
+        screenshotFolderBtn.addEventListener('click', selectScreenshotFolder);
+    }
+
+    const screenshotBtn = document.getElementById('screenshotBtn');
+    if (screenshotBtn) {
+        screenshotBtn.addEventListener('click', takeScreenshot);
+    }
+
+
 
     document.getElementById('openLogBtn').addEventListener('click', () => {
         if (window.electronAPI && window.electronAPI.openLogFile) {
@@ -716,6 +747,8 @@ function handleStreamingChunk(chunkData) {
 
 function processStreamLines(lines) {
     const SDB_NEWLINE_MARKER_START = /^L\d{1,5}\s/;
+    const liveStatusEl = document.getElementById('liveStatus');
+
     for (const line of lines) {
         streamLineCount++;
         let t = line.trim();
@@ -736,10 +769,17 @@ function processStreamLines(lines) {
                 streamBlockBuffer = [];
                 streamBlockLineNumbers = [];
                 streamInBlock = false;
+                if (liveStatusEl) {
+                    liveStatusEl.textContent = '';
+                }
             }
             streamBlockBuffer = [t];
             streamBlockLineNumbers = [streamLineCount];
             streamInBlock = true;
+            if (liveStatusEl) {
+                liveStatusEl.textContent = '새로운 발화 분석중...';
+                liveStatusEl.style.color = '#fbbf24';
+            }
         } else if (isE && streamInBlock) {
             streamBlockBuffer.push(t);
             streamBlockLineNumbers.push(streamLineCount);
@@ -750,6 +790,9 @@ function processStreamLines(lines) {
             streamBlockBuffer = [];
             streamBlockLineNumbers = [];
             streamInBlock = false;
+            if (liveStatusEl) {
+                liveStatusEl.textContent = '';
+            }
         } else if (streamInBlock) {
             streamBlockBuffer.push(t);
             streamBlockLineNumbers.push(streamLineCount);
@@ -1171,6 +1214,96 @@ function updateModeButtons() {
         streamBtn.classList.remove('active');
     }
 }
+
+function toggleLiveStream() {
+    const liveLogBtn = document.getElementById('liveLogBtn');
+    if (!window.electronAPI) {
+        showErrorToast('Live log streaming is only available in the Electron app.');
+        return;
+    }
+
+    isLiveStreaming = !isLiveStreaming;
+
+    if (isLiveStreaming) {
+        // Start the stream
+        const command = document.getElementById('liveLogCommand').value;
+        if (!command) {
+            showErrorToast('Live log command cannot be empty.');
+            isLiveStreaming = false; // Reset state
+            return;
+        }
+        window.electronAPI.startLogStream(command);
+        liveLogBtn.innerHTML = '■ Stop Live Log';
+        liveLogBtn.classList.add('active');
+
+        // Prepare UI for streaming
+        prepareStreamingParsing('SDB Live Log', 'utf-8', 0); // File size is unknown for streams
+        updateLoadingState('Live log stream started. Waiting for data...');
+        
+        // Ensure streaming mode is enabled for live analysis
+        if (!streamingMode) {
+            setStreamingMode(true);
+        }
+
+    } else {
+        // Stop the stream
+        window.electronAPI.stopLogStream();
+        liveLogBtn.innerHTML = '🔴 Start Live Log';
+        liveLogBtn.classList.remove('active');
+
+        const liveStatusEl = document.getElementById('liveStatus');
+        if (liveStatusEl) {
+            liveStatusEl.textContent = '';
+        }
+
+        // Finalize the UI
+        finishStreamingParsing();
+        updateLoadingState('Live log stream stopped.');
+    }
+}
+
+async function selectScreenshotFolder() {
+    if (!window.electronAPI) {
+        showErrorToast('This feature is only available in the Electron app.');
+        return;
+    }
+    try {
+        const path = await window.electronAPI.selectScreenshotFolder();
+        if (path) {
+            screenshotSavePath = path;
+            document.getElementById('screenshotFolder').textContent = `Save path: ${path}`;
+        }
+    } catch (err) {
+        showErrorToast(`Could not select folder: ${err.message}`, err.stack);
+    }
+}
+
+async function takeScreenshot() {
+    if (!screenshotSavePath) {
+        showErrorToast('Please select a folder to save the screenshot in.');
+        return;
+    }
+    const command = document.getElementById('screenshotCommand').value;
+    if (!command) {
+        showErrorToast('Screenshot command cannot be empty.');
+        return;
+    }
+
+    try {
+        const screenshotPath = await window.electronAPI.runScreenshotCommand({ command, savePath: screenshotSavePath });
+        if (screenshotPath) {
+            showToast('Screenshot saved!');
+            const base64 = await window.electronAPI.readScreenshot(screenshotPath);
+            if (base64) {
+                const container = document.getElementById('screenshotThumbnailContainer');
+                container.innerHTML = `<img src="data:image/png;base64,${base64}" style="max-width: 100%; max-height: 100%; border-radius: 8px;">`;
+            }
+        }
+    } catch (err) {
+        showErrorToast(`Screenshot failed: ${err.message}`, err.stack);
+    }
+}
+
 
 // ── Detail & Modals ──
 function openURLExternal(url) {

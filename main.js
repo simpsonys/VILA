@@ -5,6 +5,9 @@ const fs = require("fs");
 const { pipeline } = require("stream/promises");
 const { Transform } = require("stream");
 const jschardet = require("jschardet");
+const { spawn, exec } = require("child_process");
+
+let dlogProcess = null;
 
 let activeFileStream = null;
 
@@ -327,6 +330,111 @@ ipcMain.on("cancel-file-read", () => {
     activeFileStream = null;
   }
 });
+
+// IPC: Start sdb dlogutil stream
+ipcMain.on("start-log-stream", (event, command) => {
+  if (dlogProcess) {
+    writeToLog('warn', 'start-log-stream called but dlogProcess already exists.');
+    return;
+  }
+
+  if (!command) {
+    writeToLog('error', 'start-log-stream called with no command.');
+    return;
+  }
+
+  const parts = command.split(' ');
+  const cmd = parts[0];
+  const args = parts.slice(1);
+
+  try {
+    writeToLog('info', `Attempting to start command: ${cmd} with args: ${args.join(' ')}`);
+    dlogProcess = spawn(cmd, args);
+
+    dlogProcess.stdout.on('data', (data) => {
+      event.sender.send('log-stream-data', data.toString());
+    });
+
+    dlogProcess.stderr.on('data', (data) => {
+      writeToLog('error', `sdb stderr: ${data.toString()}`);
+      event.sender.send('log-stream-error', data.toString());
+    });
+
+    dlogProcess.on('close', (code) => {
+      writeToLog('info', `sdb process exited with code ${code}`);
+      event.sender.send('log-stream-closed', code);
+      dlogProcess = null;
+    });
+    
+    dlogProcess.on('error', (err) => {
+      writeToLog('error', 'Failed to start sdb process.', err);
+      event.sender.send('log-stream-error', `Failed to start sdb. Make sure 'sdb' is in your system's PATH. Error: ${err.message}`);
+      dlogProcess = null;
+    });
+
+  } catch (err) {
+    writeToLog('error', 'Exception while trying to spawn sdb.', err);
+    event.sender.send('log-stream-error', `Error spawning sdb process: ${err.message}`);
+    dlogProcess = null;
+  }
+});
+
+// IPC: Stop sdb dlogutil stream
+ipcMain.on("stop-log-stream", () => {
+  if (dlogProcess) {
+    writeToLog('info', 'Stopping dlogProcess.');
+    dlogProcess.kill();
+    dlogProcess = null;
+  }
+});
+
+// IPC: Select a folder for screenshots
+ipcMain.handle("select-screenshot-folder", async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ["openDirectory"],
+  });
+  if (result.canceled || result.filePaths.length === 0) {
+    return null;
+  }
+  return result.filePaths[0];
+});
+
+// IPC: Run screenshot command
+ipcMain.handle("run-screenshot-command", async (event, { command, savePath }) => {
+  const commands = command.split(/\r?\n/).filter(c => c.trim() !== '');
+  let finalPath = null;
+
+  for (let cmd of commands) {
+    // Replace placeholder for filename
+    if (cmd.includes("yymmdd_hhmmss.png")) {
+      const now = new Date();
+      const timestamp = now.getFullYear().toString().slice(2) +
+                        String(now.getMonth() + 1).padStart(2, '0') +
+                        String(now.getDate()).padStart(2, '0') + '_' +
+                        String(now.getHours()).padStart(2, '0') +
+                        String(now.getMinutes()).padStart(2, '0') +
+                        String(now.getSeconds()).padStart(2, '0');
+      const fileName = `${timestamp}.png`;
+      finalPath = path.join(savePath, fileName);
+      cmd = cmd.replace("yymmdd_hhmmss.png", fileName);
+    }
+    
+    await new Promise((resolve, reject) => {
+      exec(cmd, { cwd: savePath }, (error, stdout, stderr) => {
+        if (error) {
+          writeToLog('error', `Screenshot command failed: ${cmd}`, error);
+          return reject(error);
+        }
+        writeToLog('info', `Screenshot command success: ${cmd}`, stdout, stderr);
+        resolve(stdout);
+      });
+    });
+  }
+  return finalPath;
+});
+
+
+
 
 // IPC: Save export files with custom filename (Save As dialog)
 ipcMain.handle("save-export", async (event, { htmlData, baseName }) => {

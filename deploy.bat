@@ -12,6 +12,9 @@ if "%GIT_STATUS%"=="" (
     exit /b
 )
 
+echo Submodule 변경 사항을 커밋합니다...
+git submodule foreach "git add . && git commit -m \"Update submodule\" || exit 0"
+
 set /p VERSION_TYPE="릴리스할 버전을 입력하세요 (major, minor, patch, or specific version): "
 if "%VERSION_TYPE%"=="" (
     echo 버전이 필요합니다.
@@ -36,7 +39,7 @@ if errorlevel 1 (
 )
 
 echo 원격 저장소에 푸시합니다...
-git push
+git push --recurse-submodules=on-demand
 git push --tags
 
 echo 빌드 및 배포를 시작합니다...

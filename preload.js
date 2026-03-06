@@ -9,6 +9,20 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onFileReadComplete: (callback) => ipcRenderer.on("file-read-complete", (event, data) => callback(data)),
   onFileReadError: (callback) => ipcRenderer.on("file-read-error", (event, data) => callback(data)),
   cancelFileRead: () => ipcRenderer.send("cancel-file-read"),
+
+  // Real-time log stream
+  startLogStream: (command) => ipcRenderer.send("start-log-stream", command),
+  stopLogStream: () => ipcRenderer.send("stop-log-stream"),
+  onLogStreamData: (callback) => ipcRenderer.on("log-stream-data", (event, data) => callback(data)),
+  onLogStreamError: (callback) => ipcRenderer.on("log-stream-error", (event, data) => callback(data)),
+  onLogStreamClosed: (callback) => ipcRenderer.on("log-stream-closed", (event, code) => callback(code)),
+
+  // Screenshot
+  selectScreenshotFolder: () => ipcRenderer.invoke("select-screenshot-folder"),
+  runScreenshotCommand: (args) => ipcRenderer.invoke("run-screenshot-command", args),
+
+
+
   saveExport: (data) => ipcRenderer.invoke("save-export", data),
   getAppVersion: () => ipcRenderer.invoke("get-version"),
   getScreenshots: (args) => ipcRenderer.invoke("get-screenshots", args),
