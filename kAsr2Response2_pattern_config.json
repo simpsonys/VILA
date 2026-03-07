@@ -1,0 +1,73 @@
+{
+  "start_patterns": [
+    "GRPC OPEN IN"
+  ],
+  "end_patterns": [
+    "GRPC CLOSE OUT"
+  ],
+  "success_patterns": [
+    "result_code=success"
+  ],
+  "failure_patterns": [
+    "result_code=fail"
+  ],
+  "clickable_patterns": {
+    "conversationId": {
+      "pattern": "conversationId\\[([^\\]]+)\\]",
+      "url_template": "https://sumologic.bixbydev.com/stg/conversation/?conversationId={value}",
+      "display_name": "ConversationID"
+    },
+    "requestId": {
+      "pattern": "requestId\\[([^\\]]+)\\]",
+      "url_template": null,
+      "display_name": "RequestID"
+    },
+    "capsuleGoal": {
+      "pattern": "setExecutionCapsuleGoal\\(\\d+\\)\\s*>\\s*(.*)",
+      "url_template": null,
+      "display_name": "Capsule Goal"
+    }
+  },
+  "utterance_patterns": {
+    "kAsr2Response": {
+      "pattern": "kAsr2Response\\s*\\[FINAL\\]\\s*\\[([^\\]]+)\\]",
+      "utterance": "{value}"
+    }
+  },
+  "pattern_groups": {
+    "MakeMetaDataParams": {
+      "name": "MakeMetaDataParams",
+      "patterns": [
+        "MakeMetaDataParams.*",
+		"GetConfig.*"
+      ]
+    },
+    "Actions": {
+      "name": "Action",
+      "patterns": [
+		"PROCESS ACTION URL.*",
+        "result_code"
+      ]
+    },
+    "setDialogText": {
+      "name": "setDialogText",
+      "patterns": [
+		"setDialogText.*"
+      ]
+    },
+    "YT": {
+      "name": "YT",
+      "patterns": [
+		"Dispatching deep link event.*"
+      ]
+    }
+  },
+  "table_columns": [
+    { "key": "conversationId", "label": "Conversation ID", "width": "22%", "clickable_key": "conversationId" },
+    { "key": "requestId", "label": "Request ID", "width": "12%" },
+    { "key": "utterance", "label": "Utterance", "width": "22%", "type": "utterance" },
+    { "key": "capsuleGoal", "label": "Capsule Goal", "width": "8%", "type": "log" },
+    { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
+    { "key": "successLine", "label": "Success Match", "width": "28%", "type": "log" }
+  ]
+}

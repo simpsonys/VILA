@@ -141,11 +141,14 @@ fn open_log_file(app: AppHandle) {
 
 #[tauri::command]
 fn toggle_dev_tools(app: AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
-        if window.is_devtools_open() {
-            window.close_devtools();
-        } else {
-            window.open_devtools();
+    #[cfg(debug_assertions)]
+    {
+        if let Some(window) = app.get_webview_window("main") {
+            if window.is_devtools_open() {
+                window.close_devtools();
+            } else {
+                window.open_devtools();
+            }
         }
     }
 }

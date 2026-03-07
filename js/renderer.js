@@ -2112,6 +2112,9 @@ function resetApp() {
 // ── Updates ──
 let updateState = null;
 async function checkForUpdates() {
+    // main 브랜치만 업데이트 확인
+    if (window.__APP_BRANCH__ !== 'main') return;
+
     showUpdateModal('Checking for updates...', 'checking');
     if (window.electronAPI && window.electronAPI.checkUpdates) {
         try { await window.electronAPI.checkUpdates(); } catch (e) { console.error('Update check error:', e); showUpdateModal('Update check failed', 'error'); }
