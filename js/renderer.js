@@ -3,6 +3,23 @@
  */
 
 // ── State ──
+function injectTcColumn(config) {
+    if (!config || !config.table_columns) return config;
+    const hasTc = config.table_columns.some(c => c.key === '_tc_num');
+    if (!hasTc) {
+        const convCol = config.table_columns.find(c => c.key === 'conversationId');
+        if (convCol && convCol.width === '22%') convCol.width = '14%';
+        
+        config.table_columns.unshift({
+            key: "_tc_num",
+            label: "TC No.",
+            width: "8%",
+            type: "tc"
+        });
+    }
+    return config;
+}
+
 let CONFIG = getDefaultConfig();
 let entries = [];
 let filteredData = [];
@@ -230,7 +247,7 @@ async function init() {
         try {
             const result = await window.electronAPI.loadConfig();
             if (result) {
-                CONFIG = result.config;
+                CONFIG = injectTcColumn(result.config);
                 currentConfigFileName = result.fileName;
 
                 // Config가 로드된 후, 해당 파일에 맞는 라디오 버튼을 체크합니다.
@@ -353,7 +370,7 @@ async function switchPreset(fileName) {
     try {
         const result = await window.electronAPI.switchPreset(fileName);
         if (result && result.config) {
-            CONFIG = result.config;
+            CONFIG = injectTcColumn(result.config);
             currentConfigFileName = result.fileName || fileName;
             updatePresetRadioSelection(currentConfigFileName);
             console.log('Switched to preset:', currentConfigFileName);
@@ -414,7 +431,7 @@ async function addCustomPreset() {
 }
 
 function getDefaultConfig() {
-    return {
+    return injectTcColumn({
         start_patterns: ["cmd_from_mockapp", "REQUEST OPEN SERVER"],
         end_patterns: ["Process Finished!"],
         success_patterns: ["result_code=success"],
@@ -438,7 +455,7 @@ function getDefaultConfig() {
             { key: "result", label: "Result", width: "8%", type: "badge" },
             { key: "successLine", label: "Success Match", width: "28%", type: "log" }
         ]
-    };
+    });
 }
 
 // ── Event Handlers ──
@@ -580,7 +597,9 @@ function setupEventListeners() {
 }
 
 function showLoadingState(fileName) {
-    document.getElementById('dropzone').style.display = 'none';
+    if (!isLiveStreaming) {
+        document.getElementById('dropzone').style.display = 'none';
+    }
     document.getElementById('resultsArea').style.display = '';
     const pp = document.getElementById('progressPanel');
     pp.classList.add('show');
@@ -719,8 +738,8 @@ async function refreshAnalysis() {
     if (isAnalyzing) { alert('현재 분석 중입니다.'); return; }
     if (window.electronAPI && window.electronAPI.loadConfig) {
         const nc = await window.electronAPI.loadConfig();
-        if (nc && nc.config) { CONFIG = nc.config; currentConfigFileName = nc.fileName; }
-        else if (nc) CONFIG = nc;
+        if (nc && nc.config) { CONFIG = injectTcColumn(nc.config); currentConfigFileName = nc.fileName; }
+        else if (nc) CONFIG = injectTcColumn(nc);
     }
     initColumnFilters();
     document.getElementById('tableFilters').innerHTML = '';
@@ -955,6 +974,7 @@ function startParsing(text, name, enc) {
 function parseBlock(lines, lineNumbers = []) {
     const e = {
         id: Date.now() + '_' + Math.random().toString(36).substr(2, 6),
+        _tc_num: 'TC' + String(entries.length + 1).padStart(5, '0'),
         conversationId: null, requestId: null, utterance: null,
         result: 'Unknown', successLine: null, failLines: [], allLines: lines, lineNumbers: lineNumbers, patternGroups: {}
     };
@@ -1014,7 +1034,9 @@ function parseBlock(lines, lineNumbers = []) {
 
 // ── UI Rendering ──
 function showProgress(name, enc) {
-    document.getElementById('dropzone').style.display = 'none';
+    if (!isLiveStreaming) {
+        document.getElementById('dropzone').style.display = 'none';
+    }
     document.getElementById('resultsArea').style.display = '';
     document.getElementById('exportBtn').style.display = '';
     document.getElementById('refreshBtn').style.display = '';
@@ -1165,6 +1187,27 @@ function handleCopyClick(event, textToCopy) {
     copyToClipboard(textToCopy);
 }
 
+// ── Virtual Scrolling State ──
+let vsState = {
+    rowHeight: 40, 
+    buffer: 10,
+    visibleRows: 0,
+    scrollTop: 0
+};
+
+function initVirtualScroll() {
+    const tb = document.getElementById('tableBody');
+    if (tb) {
+        tb.style.overflowY = 'auto';
+        tb.style.position = 'relative';
+        tb.style.maxHeight = '600px'; 
+        tb.addEventListener('scroll', (e) => {
+            vsState.scrollTop = e.target.scrollTop;
+            renderVirtualTableBody();
+        });
+    }
+}
+
 function renderTable() {
     renderStats();
     const cols = CONFIG.table_columns;
@@ -1193,16 +1236,17 @@ function renderTable() {
     const q = (document.getElementById('searchBox').value || '').toLowerCase();
     let rows = entries.filter(e => {
         if (q) {
-            const hasGlobal = (e.conversationId || '').toLowerCase().includes(q) ||
-                (e.requestId || '').toLowerCase().includes(q) ||
-                (e.utterance || '').toLowerCase().includes(q) ||
+            const hasGlobal = (e.conversationId || 'n/a').toLowerCase().includes(q) ||
+                (e.requestId || 'n/a').toLowerCase().includes(q) ||
+                (e.utterance || 'n/a').toLowerCase().includes(q) ||
                 e.result.toLowerCase().includes(q) ||
-                (e.successLine || '').toLowerCase().includes(q);
+                (e.successLine || 'n/a').toLowerCase().includes(q);
             if (!hasGlobal) return false;
         }
         for (const [col, filter] of Object.entries(columnFilters)) {
             if (!filter) continue;
-            const val = (e[col] || '').toString().toLowerCase();
+            let val = (e[col] || '').toString().toLowerCase();
+            if (val === '') val = 'n/a';
             if (!val.includes(filter)) return false;
         }
         return true;
@@ -1218,13 +1262,37 @@ function renderTable() {
     }
 
     filteredData = rows;
+    
+    // Initialize scrolling wrapper once
+    initVirtualScroll();
+    renderVirtualTableBody();
+}
 
-    if (rows.length === 0) {
-        document.getElementById('tableBody').innerHTML = `<div class="empty-msg">No entries found${q ? ` matching "${esc(q)}"` : ''}</div>`;
+function renderVirtualTableBody() {
+    const tb = document.getElementById('tableBody');
+    const totalRows = filteredData.length;
+    
+    if (totalRows === 0) {
+        const q = (document.getElementById('searchBox').value || '');
+        tb.innerHTML = `<div class="empty-msg">No entries found${q ? ` matching "${esc(q)}"` : ''}</div>`;
         return;
     }
-
-    document.getElementById('tableBody').innerHTML = rows.map((e, i) => {
+    
+    const clientHeight = tb.clientHeight || 600;
+    vsState.visibleRows = Math.ceil(clientHeight / vsState.rowHeight);
+    const totalHeight = totalRows * vsState.rowHeight;
+    
+    let startIdx = Math.floor(vsState.scrollTop / vsState.rowHeight) - vsState.buffer;
+    startIdx = Math.max(0, startIdx);
+    
+    let endIdx = startIdx + vsState.visibleRows + (vsState.buffer * 2);
+    endIdx = Math.min(totalRows, endIdx);
+    
+    const gridCols = document.getElementById('tableHead').style.gridTemplateColumns;
+    const cols = CONFIG.table_columns;
+    
+    const rowsHtml = filteredData.slice(startIdx, endIdx).map((e, sliceIdx) => {
+        const i = startIdx + sliceIdx;
         const cells = cols.map(c => {
             const v = e[c.key];
             const sanitizedV = sanitizeCtrl(String(v || ''));
@@ -1249,8 +1317,10 @@ function renderTable() {
             }
             return `<div class="td"><span>${esc(v)}</span>${copyBtn}</div>`;
         }).join('');
-        return `<div class="tr" style="grid-template-columns:${gridCols};animation-delay:${Math.min(i * 0.015, 0.4)}s" onclick="openDetailFromTable(${i})">${cells}</div>`;
+        return `<div class="tr" style="grid-template-columns:${gridCols};position:absolute;top:${i * vsState.rowHeight}px;left:0;right:0;height:${vsState.rowHeight}px;animation-delay:${Math.min(sliceIdx * 0.015, 0.4)}s" onclick="openDetailFromTable(${i})">${cells}</div>`;
     }).join('');
+    
+    tb.innerHTML = `<div style="height:${totalHeight}px;position:relative;width:100%">${rowsHtml}</div>`;
 }
 
 function renderTableBody() { renderTable(); }
@@ -1305,7 +1375,9 @@ function toggleLiveStream() {
 
         // Prepare for streaming, but hide the file-based progress UI
         prepareStreamingParsing('SDB Live Log', 'utf-8', 0);
-        document.getElementById('dropzone').style.display = 'none';
+        // Do NOT hide dropzone so user can click 'Stop Live Log'
+        document.getElementById('dropzone').style.display = '';
+        
         document.getElementById('progressPanel').style.display = 'none';
         document.getElementById('resultsArea').style.display = 'block';
         
@@ -1915,7 +1987,24 @@ async function doExport() {
     }
 
     const reportHtml = generateReportHtml(jsonStr);
-    if (window.electronAPI) {
+    
+    // Use Tauri API if available to avoid IPC size limits
+    if (window.__TAURI__ && window.__TAURI__.dialog) {
+        try {
+            const { save } = window.__TAURI__.dialog;
+            const { writeTextFile } = window.__TAURI__.fs;
+            const filePath = await save({
+                defaultPath: `${baseName}_report.html`,
+                filters: [{ name: 'HTML', extensions: ['html'] }]
+            });
+            if (filePath) {
+                await writeTextFile(filePath, reportHtml);
+                showToast('Export saved successfully!');
+            }
+        } catch (err) {
+            showErrorToast(`Export failed: ${err}`);
+        }
+    } else if (window.electronAPI) {
         await window.electronAPI.saveExport({ htmlData: reportHtml, baseName });
     } else {
         const hBlob = new Blob([reportHtml], { type: 'text/html' });

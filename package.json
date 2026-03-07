@@ -4,60 +4,25 @@
   "description": "Voice Interaction Log Analyzer - Utterance-level log analysis report tool",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "tauri dev",
     "prebuild": "node scripts/update-build-time.js",
-    "build": "npm run prebuild && electron-builder --win",
-    "build:portable": "npm run prebuild && electron-builder --win portable",
-    "test": "jest"
+    "build": "npm run prebuild && tauri build",
+    "test": "jest",
+    "tauri": "tauri"
   },
   "author": "VD Division",
   "license": "MIT",
   "devDependencies": {
+    "@tauri-apps/cli": "^2.10.1",
     "@types/jest": "^30.0.0",
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.0",
     "fast-check": "^4.5.3",
     "jest": "^30.2.0"
   },
   "dependencies": {
-    "electron-updater": "^6.8.3",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
+    "@tauri-apps/plugin-fs": "^2.4.5",
+    "@tauri-apps/plugin-shell": "^2.3.5",
     "jschardet": "^3.1.3"
-  },
-  "build": {
-    "appId": "com.vd.voice-log-analyzer",
-    "productName": "Voice Log Analyzer",
-    "publish": {
-      "provider": "github",
-      "owner": "simpsonys",
-      "repo": "VILA_Release"
-    },
-    "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "icon": "icon.png"
-    },
-    "nsis": {
-      "oneClick": true,
-      "allowToChangeInstallationDirectory": false,
-      "artifactName": "Voice-Log-Analyzer-Setup-${version}.${ext}"
-    },
-    "files": [
-      "main.js",
-      "preload.js",
-      "index.html",
-      "css/",
-      "js/",
-      "default_config.json",
-      "build-time.json",
-      "Preset0_CmdMyBixby_pattern_config.json",
-      "Preset1_kAsr2Response_pattern_config.json"
-    ],
-    "extraResources": []
   }
 }
