@@ -131,6 +131,24 @@
 
         <!-- Results area (hidden initially) -->
         <div id="resultsArea" style="display:none">
+            <!-- Screenshot Section (Moved here, above the table and below dropzone) -->
+            <div class="screenshot-section" id="screenshotSection" style="display:none;margin-bottom:14px;">
+                <div class="screenshot-controls">
+                    <div class="screenshot-command">
+                        <textarea id="screenshotCommand" class="command-input" rows="3" onclick="event.stopPropagation()">sdb shell enlightenment_remote -display-shot /tmp/dump.png
+sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
+                        <div class="screenshot-buttons">
+                            <button class="btn btn-ghost" id="screenshotFolderBtn">📂 Select Folder</button>
+                            <button class="btn btn-primary" id="screenshotBtn">📸 Screenshot</button>
+                        </div>
+                    </div>
+                    <div class="screenshot-thumbnail-container" id="screenshotThumbnailContainer">
+                        <!-- Thumbnail will be displayed here -->
+                    </div>
+                </div>
+                <div id="screenshotFolder" class="screenshot-folder-path"></div>
+            </div>
+
             <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px;gap:12px">
                 <div class="stats-bar" id="statsBar"></div>
                     <div style="width:100%;display:flex;justify-content:center">
@@ -150,23 +168,6 @@
                     <div>분석 완료 후 결과가 표시됩니다...</div>
                     <div style="font-size:11px;color:#334155;margin-top:4px">Batch 모드 · 실시간으로 보려면 헤더의 Stream 버튼을 누르세요</div>
                 </div>
-            </div>
-            <!-- Screenshot Section -->
-            <div class="screenshot-section" id="screenshotSection" style="display:none;">
-                <div class="screenshot-controls">
-                    <div class="screenshot-command">
-                        <textarea id="screenshotCommand" class="command-input" rows="3" onclick="event.stopPropagation()">sdb shell enlightenment_remote -display-shot /tmp/dump.png
-sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
-                        <div class="screenshot-buttons">
-                            <button class="btn btn-ghost" id="screenshotFolderBtn">📂 Select Folder</button>
-                            <button class="btn btn-primary" id="screenshotBtn">📸 Screenshot</button>
-                        </div>
-                    </div>
-                    <div class="screenshot-thumbnail-container" id="screenshotThumbnailContainer">
-                        <!-- Thumbnail will be displayed here -->
-                    </div>
-                </div>
-                <div id="screenshotFolder" class="screenshot-folder-path"></div>
             </div>
         </div>
     </div>

@@ -337,6 +337,15 @@ async function refreshPresetList() {
 
 // Switch to a different preset config
 async function switchPreset(fileName) {
+    if (isAnalyzing) {
+        const shouldContinue = confirm('현재 로그 분석이 진행 중입니다. 분석을 취소하고 새로운 패턴으로 다시 분석하시겠습니까?');
+        if (!shouldContinue) {
+            updatePresetRadioSelection(currentConfigFileName); // Revert selection
+            return;
+        }
+        parseInterrupt = true;
+    }
+
     if (!window.electronAPI || !window.electronAPI.switchPreset) {
         showErrorToast('switchPreset API not available');
         return;
@@ -1082,7 +1091,13 @@ function finishParsing() {
     document.getElementById('progressLayout').style.display = 'none';
     document.getElementById('progressSplitLayout').style.display = '';
     updateDefaultCommands(); // Update commands now that the view is visible
-    document.getElementById('screenshotSection').style.display = 'block';
+    
+    // Show screenshot section ONLY if it's Live Log mode
+    if (isLiveStreaming) {
+        document.getElementById('screenshotSection').style.display = 'block';
+    } else {
+        document.getElementById('screenshotSection').style.display = 'none';
+    }
 
     renderTable();
 }
