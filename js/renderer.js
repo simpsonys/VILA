@@ -413,6 +413,40 @@ async function addCustomPreset() {
     }
 }
 
+// Delete current custom preset
+async function deleteCurrentPreset() {
+    if (!currentConfigFileName) {
+        showErrorToast('No preset selected.');
+        return;
+    }
+    if (currentConfigFileName === 'pattern_config.json') {
+        showErrorToast('Default preset cannot be deleted.');
+        return;
+    }
+    if (!window.electronAPI || !window.electronAPI.deletePreset) {
+        showErrorToast('Delete preset API not available.');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to delete the preset '${currentConfigFileName}'?`)) {
+        return;
+    }
+
+    try {
+        const result = await window.electronAPI.deletePreset(currentConfigFileName);
+        if (result && result.success) {
+            showToast(`Preset deleted.`);
+            await refreshPresetList();
+            await switchPreset('pattern_config.json');
+        } else {
+            showErrorToast('Failed to delete preset.');
+        }
+    } catch (err) {
+        console.error('Failed to delete preset:', err);
+        showErrorToast('Failed to delete preset: ' + err.message);
+    }
+}
+
 function getDefaultConfig() {
     return {
         start_patterns: ["cmd_from_mockapp", "REQUEST OPEN SERVER"],
@@ -658,12 +692,17 @@ async function openFile() {
 
 function readFile(file) {
     if (!file) return;
-    logToFile('info', 'readFile called for file.', { name: file.name, path: file.path, size: file.size, type: file.type });
-    if (window.electronAPI && window.electronAPI.openAndReadFile && file.path) {
-        logToFile('info', 'File dropped, using streaming reader.', { path: file.path });
-        window.electronAPI.openAndReadFile(file.path);
+    // Resolve file path: file.path (older Electron) or webUtils.getPathForFile (Electron 32+ with contextIsolation)
+    let filePath = file.path;
+    if (!filePath && window.electronAPI && window.electronAPI.getPathForFile) {
+        try { filePath = window.electronAPI.getPathForFile(file); } catch (_) {}
+    }
+    logToFile('info', 'readFile called for file.', { name: file.name, path: filePath, size: file.size, type: file.type });
+    if (window.electronAPI && window.electronAPI.openAndReadFile && filePath) {
+        logToFile('info', 'File dropped, using streaming reader.', { path: filePath });
+        window.electronAPI.openAndReadFile(filePath);
     } else {
-        logToFile('warn', 'File dropped, but file.path not available or not in Electron. Falling back to FileReader.');
+        logToFile('warn', 'File dropped, but file path not resolvable. Falling back to FileReader.');
         showLoadingState(file.name);
         const reader = new FileReader();
         reader.onload = (e) => {
@@ -697,6 +736,17 @@ async function doPaste() {
 function stripTs(line) {
     const m = line.match(/[A-Z]\/[\w]+\s*\(\s*\d+\)\s*:/);
     return m ? line.substring(m.index) : line;
+}
+
+function stripLogPrefix(line, patterns) {
+    if (!line) return line;
+    if (patterns) {
+        for (const p of patterns) {
+            const idx = line.indexOf(p);
+            if (idx >= 0) return line.substring(idx).trim();
+        }
+    }
+    return stripTs(line);
 }
 
 
@@ -959,11 +1009,30 @@ function parseBlock(lines, lineNumbers = []) {
         result: 'Unknown', successLine: null, failLines: [], allLines: lines, lineNumbers: lineNumbers, patternGroups: {}
     };
 
-    for (const [key, cfg] of Object.entries(CONFIG.clickable_patterns)) {
-        try {
-            const re = new RegExp(cfg.pattern);
-            for (const l of lines) { const m = l.match(re); if (m) { e[key] = m[1]; break; } }
-        } catch { }
+    // Initialize all custom clickable keys dynamically from table_columns if they exist
+    if (CONFIG && CONFIG.table_columns) {
+        CONFIG.table_columns.forEach(col => {
+            if (col.key !== 'conversationId' && col.key !== 'requestId' && col.key !== 'utterance' && col.key !== 'result' && col.key !== 'successLine') {
+                e[col.key] = null;
+            }
+        });
+    }
+
+    if (CONFIG && CONFIG.clickable_patterns) {
+        for (const [key, cfg] of Object.entries(CONFIG.clickable_patterns)) {
+            try {
+                const re = new RegExp(cfg.pattern);
+                for (const l of lines) {
+                    const m = l.match(re);
+                    if (m && m[1]) {
+                        e[key] = m[1].trim();
+                        break;
+                    }
+                }
+            } catch (err) {
+                console.error(`Invalid regex for clickable_pattern [${key}]:`, err);
+            }
+        }
     }
 
     if (!e.utterance) {
@@ -1141,6 +1210,13 @@ function makeClickable(text) {
 
 function extractLogDisplay(line, colKey) {
     if (!line) return null;
+    // For successLine, show only from the matched success pattern onwards
+    if (colKey === 'successLine' && CONFIG && CONFIG.success_patterns) {
+        for (const sp of CONFIG.success_patterns) {
+            const idx = line.indexOf(sp);
+            if (idx >= 0) return line.substring(idx).trim();
+        }
+    }
     const arrowIdx = line.lastIndexOf('> ');
     const payload = arrowIdx >= 0 ? line.substring(arrowIdx + 2).trim() : line.trim();
     if (CONFIG.pattern_groups && CONFIG.pattern_groups[colKey]) {
@@ -1472,6 +1548,7 @@ function getAllPatterns(config) {
 async function openDetailFromTable(idx) {
     const e = filteredData[idx];
     if (!e) return;
+    const utteranceIndex = entries.indexOf(e) + 1 || idx + 1;
 
     // Fallback to modal if not in Electron
     if (!window.electronAPI || !window.electronAPI.openDetailHtml) {
@@ -1479,7 +1556,7 @@ async function openDetailFromTable(idx) {
     }
 
     try {
-        const html = await generateDetailHtml(e, idx + 1);
+        const html = await generateDetailHtml(e, utteranceIndex);
         await window.electronAPI.openDetailHtml(html);
     } catch (err) {
         console.error("Failed to open detail in browser:", err);
@@ -1508,6 +1585,7 @@ function mkC(t){if(!t)return esc(t);let r=esc(t);for(const[,c]of Object.entries(
     const metas = [
         { l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' },
         { l: 'Request ID', v: e.requestId, ck: 'requestId' },
+        { l: 'Capsule Goal', v: e.capsuleGoal },
         { l: 'Utterance', v: e.utterance },
         { l: 'Result', v: e.result, b: true }
     ];
@@ -1555,7 +1633,8 @@ function mkC(t){if(!t)return esc(t);let r=esc(t);for(const[,c]of Object.entries(
         try {
             const screenshots = await window.electronAPI.getScreenshots({
                 logFilePath: currentFilePath,
-                utterance: e.utterance
+                utterance: e.utterance,
+                utteranceIndex: utteranceIndex
             });
             if (screenshots && screenshots.length > 0) {
                 screenshotHtml = '<div class="se"><div class="st" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:8px">';
@@ -1681,7 +1760,7 @@ async function displayDetailWindow(data) {
     h += `<div class="modal-hdr" style="border-bottom:1px solid #1e2433"><div style="flex:1"><div style="font-size:18px;font-weight:700">Utterance Detail #${utteranceIndex}</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()">🛠 DevTools</button></div></div>`;
     h += '<div class="modal-content" style="flex:1;overflow-y:auto"><div class="meta-grid">';
 
-    [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
+    [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Capsule Goal', v: e.capsuleGoal }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
         h += `<div class="meta-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="meta-label">${m.l}</div>`;
         if (m.l === 'Conversation ID' && m.v) {
             h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${m.v.replace(/'/g, "\\'")}')" title="Copy ID">📋 Copy</button>`;
@@ -1695,8 +1774,8 @@ async function displayDetailWindow(data) {
     });
     h += '</div>';
 
-    if (e.successLine) h += `<div class="section"><div class="sec-title" style="color:#34d399">✓ Success Match</div><div class="succ-box">${makeClickable(stripTs(e.successLine))}</div></div>`;
-    if (e.failLines.length > 0) h += `<div class="section"><div class="sec-title" style="color:#f87171">✗ Failure Matches</div><div class="fail-box">${e.failLines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+    if (e.successLine) h += `<div class="section"><div class="sec-title" style="color:#34d399">✓ Success Match</div><div class="succ-box">${makeClickable(stripLogPrefix(e.successLine, CONFIG && CONFIG.success_patterns))}</div></div>`;
+    if (e.failLines.length > 0) h += `<div class="section"><div class="sec-title" style="color:#f87171">✗ Failure Matches</div><div class="fail-box">${e.failLines.map(l => makeClickable(stripLogPrefix(l, CONFIG && CONFIG.failure_patterns))).join('<br>')}</div></div>`;
 
     if (Object.keys(e.patternGroups).length > 0) {
         h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
@@ -1708,9 +1787,10 @@ async function displayDetailWindow(data) {
     }
 
     if (window.electronAPI && currentFilePath) {
-        const screenshots = await window.electronAPI.getScreenshots({ 
-            logFilePath: currentFilePath, 
-            utterance: e.utterance 
+        const screenshots = await window.electronAPI.getScreenshots({
+            logFilePath: currentFilePath,
+            utterance: e.utterance,
+            utteranceIndex: utteranceIndex
         });
         logToFile('info', `Fetched ${screenshots ? screenshots.length : 0} screenshots for utterance: "${e.utterance}"`);
         if (screenshots && screenshots.length > 0) {
@@ -1766,11 +1846,12 @@ async function displayDetailWindow(data) {
 async function showDetail(idx) {
     const e = filteredData[idx];
     if (!e) return;
+    const utteranceIndex = entries.indexOf(e) + 1 || idx + 1;
 
     let h = `<div class="modal-hdr"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()">🛠 DevTools</button><button class="modal-close" onclick="closeModal()" style="position:static;margin-left:10px">✕</button></div></div>`;
     h += '<div class="modal-content"><div class="meta-grid">';
 
-    [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
+    [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Capsule Goal', v: e.capsuleGoal }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
         h += `<div class="meta-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="meta-label">${m.l}</div>`;
         if (m.l === 'Conversation ID' && m.v) {
             h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${m.v.replace(/'/g, "\\'")}')" title="Copy ID">📋 Copy</button>`;
@@ -1784,8 +1865,8 @@ async function showDetail(idx) {
     });
     h += '</div>';
 
-    if (e.successLine) h += `<div class="section"><div class="sec-title" style="color:#34d399">✓ Success Match</div><div class="succ-box">${makeClickable(stripTs(e.successLine))}</div></div>`;
-    if (e.failLines.length > 0) h += `<div class="section"><div class="sec-title" style="color:#f87171">✗ Failure Matches</div><div class="fail-box">${e.failLines.map(l => makeClickable(stripTs(l))).join('<br>')}</div></div>`;
+    if (e.successLine) h += `<div class="section"><div class="sec-title" style="color:#34d399">✓ Success Match</div><div class="succ-box">${makeClickable(stripLogPrefix(e.successLine, CONFIG && CONFIG.success_patterns))}</div></div>`;
+    if (e.failLines.length > 0) h += `<div class="section"><div class="sec-title" style="color:#f87171">✗ Failure Matches</div><div class="fail-box">${e.failLines.map(l => makeClickable(stripLogPrefix(l, CONFIG && CONFIG.failure_patterns))).join('<br>')}</div></div>`;
 
     if (Object.keys(e.patternGroups).length > 0) {
         h += '<div class="section"><div class="sec-title" style="color:#60dcfa">Pattern Groups</div>';
@@ -1797,9 +1878,10 @@ async function showDetail(idx) {
     }
 
     if (window.electronAPI && currentFilePath) {
-        const screenshots = await window.electronAPI.getScreenshots({ 
-            logFilePath: currentFilePath, 
-            utterance: e.utterance 
+        const screenshots = await window.electronAPI.getScreenshots({
+            logFilePath: currentFilePath,
+            utterance: e.utterance,
+            utteranceIndex: utteranceIndex
         });
         logToFile('info', `Fetched ${screenshots ? screenshots.length : 0} screenshots for utterance: "${e.utterance}"`);
         if (screenshots && screenshots.length > 0) {
@@ -1881,10 +1963,12 @@ async function doExport() {
 
     // Collect screenshot data per utterance if available
     const exportEntries = [];
-    for (const e of entries) {
+    for (let ei = 0; ei < entries.length; ei++) {
+        const e = entries[ei];
         const entry = {
-            conversationId: e.conversationId, requestId: e.requestId, utterance: e.utterance, result: e.result,
-            successLine: e.successLine ? stripTs(e.successLine) : null, failLines: e.failLines.map(stripTs), 
+            conversationId: e.conversationId, requestId: e.requestId, capsuleGoal: e.capsuleGoal, utterance: e.utterance, result: e.result,
+            successLine: e.successLine ? stripLogPrefix(e.successLine, CONFIG && CONFIG.success_patterns) : null,
+            failLines: e.failLines.map(l => stripLogPrefix(l, CONFIG && CONFIG.failure_patterns)),
             allLines: e.allLines.map(stripTs), lineNumbers: e.lineNumbers,
             patternGroups: Object.fromEntries(Object.entries(e.patternGroups).map(([k, v]) => [k, { name: v.name, lines: v.lines.map(stripTs) }])),
             screenshots: []
@@ -1892,7 +1976,7 @@ async function doExport() {
         // Read screenshots as base64 for embedding in export
         if (window.electronAPI && window.electronAPI.getScreenshots && currentFilePath) {
             try {
-                const shots = await window.electronAPI.getScreenshots({ logFilePath: currentFilePath, utterance: e.utterance });
+                const shots = await window.electronAPI.getScreenshots({ logFilePath: currentFilePath, utterance: e.utterance, utteranceIndex: ei + 1 });
                 if (shots && shots.length > 0) {
                     for (const ss of shots) {
                         try {
@@ -1985,7 +2069,7 @@ if(c.type==='badge')return'<td><span class="badge badge-'+v+'">'+v+'</span></td>
 if(c.clickable_key&&C.clickable_patterns[c.clickable_key]){const cp=C.clickable_patterns[c.clickable_key];if(cp.url_template&&v!=='N/A')return'<td><a class="cl" href="'+cp.url_template.replace('{value}',v)+'" target="_blank" onclick="event.stopPropagation()">'+esc2(v)+'</a></td>'}
 if(c.type==='log')return'<td>'+mkC(v)+'</td>';return'<td>'+esc2(v)+'</td>'}).join('')+'</tr>').join('')}
 function sd3(i){const e=fD2[i];if(!e)return;let h='<div class="mh"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">'+esc2(e.utterance)+'</div></div><button class="cb" onclick="cm()">✕</button></div><div style="padding:20px 28px"><div class="mg">';
-[{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Utterance',v:e.utterance},{l:'Result',v:e.result,b:1}].forEach(m=>{
+[{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Capsule Goal',v:e.capsuleGoal},{l:'Utterance',v:e.utterance},{l:'Result',v:e.result,b:1}].forEach(m=>{
 h+='<div class="mc"><div class="ml">'+m.l+'</div>';if(m.b)h+='<span class="badge badge-'+m.v+'">'+m.v+'</span>';
 else if(m.ck&&C.clickable_patterns[m.ck]&&C.clickable_patterns[m.ck].url_template&&m.v)h+='<a href="'+C.clickable_patterns[m.ck].url_template.replace('{value}',m.v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline;font-size:13px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';
 else h+='<div class="mv">'+esc2(m.v)+'</div>';h+='</div>'});h+='</div>';

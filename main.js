@@ -89,10 +89,8 @@ function ensureConfig() {
     
     bundledPresets.forEach(file => {
       const destPath = path.join(userDataPath, file);
-      if (!fs.existsSync(destPath)) {
-        fs.copyFileSync(path.join(__dirname, file), destPath);
-        console.log("Copied bundled preset:", file);
-      }
+      fs.copyFileSync(path.join(__dirname, file), destPath);
+      console.log("Updated bundled preset:", file);
     });
   } catch (err) {
     console.error("Failed to copy bundled presets:", err);
@@ -213,6 +211,28 @@ ipcMain.handle("add-custom-preset", async () => {
   } catch (e) {
     console.error("Failed to add custom preset:", e);
     throw e;
+  }
+});
+
+// IPC: Delete preset config file
+ipcMain.handle("delete-preset", async (event, fileName) => {
+  try {
+    if (fileName === CONFIG_NAME) {
+      throw new Error("Cannot delete default preset");
+    }
+    const configPath = path.join(app.getPath("userData"), fileName);
+    if (fs.existsSync(configPath)) {
+      fs.unlinkSync(configPath);
+      console.log(`Preset deleted: ${fileName}`);
+      if (currentConfigFile === fileName) {
+          currentConfigFile = CONFIG_NAME;
+      }
+      return { success: true };
+    }
+    return { success: false, reason: "File not found" };
+  } catch (e) {
+    console.error("Failed to delete preset:", e);
+    return { success: false, reason: e.message };
   }
 });
 
@@ -514,11 +534,23 @@ ipcMain.handle("open-detail-html", async (event, html) => {
 });
 
 // IPC: Get screenshots from log file directory
+// Build a sanitized utterance string for TC-style screenshot filename matching.
+// Format: TC00001_수정된발화_숫자.png
+// - Remove: spaces, backslashes, single/double quotes
+// - Replace with '_': / : * ? < > |
+function sanitizeUtteranceForFilename(utterance) {
+  if (!utterance) return '';
+  return utterance
+    .replace(/[ \\'"\u005C]/g, '')
+    .replace(/[/:*?<>|]/g, '_');
+}
+
 ipcMain.handle("get-screenshots", async (event, args) => {
   const logFilePath = typeof args === 'string' ? args : args.logFilePath;
   const utterance = typeof args === 'string' ? null : args.utterance;
+  const utteranceIndex = typeof args === 'string' ? null : args.utteranceIndex;
 
-  writeToLog('info', `get-screenshots: Searching for screenshots. Utterance: "${utterance}", LogPath: ${logFilePath}`);
+  writeToLog('info', `get-screenshots: Searching for screenshots. Utterance: "${utterance}", Index: ${utteranceIndex}, LogPath: ${logFilePath}`);
 
   if (!logFilePath) {
     writeToLog('warn', 'get-screenshots: logFilePath is missing.');
@@ -569,30 +601,19 @@ ipcMain.handle("get-screenshots", async (event, args) => {
     const files = fs.readdirSync(screenshotDir);
     writeToLog('info', `get-screenshots: Found ${files.length} files in screenshot directory: ${screenshotDir}. Files: [${files.slice(0, 5).join(', ')}${files.length > 5 ? '...' : ''}]`);
     
-    // Filter files: start with "발화_" or contain the utterance string
-    const utteranceFiles = files.filter(f => {
-      const nameLower = f.toLowerCase();
-      if (!nameLower.endsWith(".png")) return false;
-      if (nameLower.startsWith("발화_")) return true;
-      if (utterance) {
-        // Create a flexible search pattern: replace spaces/underscores/dashes with a regex that matches any of them
-        const baseUtt = utterance.toLowerCase().trim();
-        const sanitizedUtt = baseUtt.replace(/[:/\\?*<>|+\-_]/g, " ").replace(/\s+/g, " ").trim();
-        
-        // Exact match of sanitized version
-        if (sanitizedUtt && nameLower.includes(sanitizedUtt)) return true;
-        
-        // Match with underscores or dashes instead of spaces
-        const flexiblePattern = sanitizedUtt.replace(/\s+/g, "[\\s\\-_]");
-        if (new RegExp(flexiblePattern).test(nameLower)) return true;
+    // Build TC-style prefix: TC00001_sanitizedUtterance
+    let tcPrefix = null;
+    if (utteranceIndex && utterance) {
+      const padded = String(utteranceIndex).padStart(5, '0');
+      const sanitized = sanitizeUtteranceForFilename(utterance);
+      tcPrefix = `TC${padded}_${sanitized}`;
+    }
 
-        // Split utterance by spaces and check if first 2-3 words match
-        const parts = sanitizedUtt.split(' ').filter(p => p.length > 2);
-        if (parts.length >= 2) {
-            const partial = parts.slice(0, 3).join(' ');
-            if (nameLower.includes(partial)) return true;
-        }
-      }
+    // Filter: TC00001_sanitizedUtterance_N.png (primary) or legacy 발화_ prefix (fallback)
+    const utteranceFiles = files.filter(f => {
+      if (!f.toLowerCase().endsWith(".png")) return false;
+      if (tcPrefix && f.startsWith(tcPrefix)) return true;
+      if (f.toLowerCase().startsWith("발화_")) return true;
       return false;
     }).sort((a, b) => {
       // Improved sorting for filenames like "name_01.png" or "발화_1.png"

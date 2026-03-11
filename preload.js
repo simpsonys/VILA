@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("electronAPI", {
   loadConfig: () => ipcRenderer.invoke("load-config"),
@@ -16,6 +16,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onLogStreamData: (callback) => ipcRenderer.on("log-stream-data", (event, data) => callback(data)),
   onLogStreamError: (callback) => ipcRenderer.on("log-stream-error", (event, data) => callback(data)),
   onLogStreamClosed: (callback) => ipcRenderer.on("log-stream-closed", (event, code) => callback(code)),
+
+  // Get OS file path for a File object (contextIsolation-safe replacement for file.path)
+  getPathForFile: (file) => webUtils.getPathForFile(file),
 
   // Screenshot
   selectScreenshotFolder: () => ipcRenderer.invoke("select-screenshot-folder"),
@@ -35,6 +38,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   listPresets: () => ipcRenderer.invoke("list-presets"),
   switchPreset: (fileName) => ipcRenderer.invoke("switch-preset", fileName),
   addCustomPreset: () => ipcRenderer.invoke("add-custom-preset"),
+  deletePreset: (fileName) => ipcRenderer.invoke("delete-preset", fileName),
   
   // Logging
   logMessage: (log) => ipcRenderer.send("log-message", log),
