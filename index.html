@@ -153,7 +153,19 @@ sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
             <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px;gap:12px">
                 <div class="stats-bar" id="statsBar"></div>
                     <div style="width:100%;display:flex;justify-content:center">
-                        <input class="search-input" id="searchBox" style="width:100%;max-width:600px" placeholder="Search all columns..." oninput="renderTable()">
+                        <div style="display:flex;align-items:center;gap:8px;width:100%">
+                            <input class="search-input" id="searchBox" style="flex:1;min-width:160px" placeholder="Search all columns..." oninput="renderTable()">
+                            <button class="btn btn-ghost" onclick="copyTableAsTsv()" title="Copy table as TSV (Tab Separated Values)" style="white-space:nowrap;flex-shrink:0">📋 Copy TSV</button>
+                            <button class="btn btn-ghost" onclick="saveTableAsTsv()" title="Save table as TSV file" style="white-space:nowrap;flex-shrink:0">💾 Save TSV</button>
+                            <span style="color:#64748b;font-size:12px;white-space:nowrap;flex-shrink:0">Show:</span>
+                            <select id="tablePageSizeSelect" onchange="changeTablePageSize(this.value)" style="background:#1e2433;border:1px solid #2a3040;border-radius:8px;color:#94a3b8;padding:6px 8px;font-size:12px;outline:none;cursor:pointer;flex-shrink:0">
+                                <option value="50" selected>50</option>
+                                <option value="100">100</option>
+                                <option value="150">150</option>
+                                <option value="all">ALL</option>
+                            </select>
+                            <span id="tableCountLabel" style="color:#4a5568;font-size:11px;white-space:nowrap;flex-shrink:0"></span>
+                        </div>
                     </div>
                 </div>
                 <!-- Live Log Viewer -->

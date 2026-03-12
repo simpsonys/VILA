@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
 
   saveExport: (data) => ipcRenderer.invoke("save-export", data),
+  saveTsv: (data) => ipcRenderer.invoke("save-tsv", data),
   getAppVersion: () => ipcRenderer.invoke("get-version"),
   getScreenshots: (args) => ipcRenderer.invoke("get-screenshots", args),
   readScreenshot: (filePath) => ipcRenderer.invoke("read-screenshot", filePath),

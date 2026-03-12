@@ -457,7 +457,7 @@ ipcMain.handle("run-screenshot-command", async (event, { command, savePath }) =>
 
 
 // IPC: Save export files with custom filename (Save As dialog)
-ipcMain.handle("save-export", async (event, { htmlData, baseName }) => {
+ipcMain.handle("save-export", async (event, { htmlData, jsonChunks, baseName }) => {
   const now = new Date();
   const timestamp = now.getFullYear().toString().slice(2) +
                     String(now.getMonth() + 1).padStart(2, '0') +
@@ -465,7 +465,7 @@ ipcMain.handle("save-export", async (event, { htmlData, baseName }) => {
                     String(now.getHours()).padStart(2, '0') +
                     String(now.getMinutes()).padStart(2, '0');
   const defaultFileName = baseName || `${timestamp}_report`;
-  
+
   const result = await dialog.showSaveDialog({
     title: "Export Analysis Report as HTML",
     defaultPath: `${defaultFileName}_report.html`,
@@ -474,13 +474,41 @@ ipcMain.handle("save-export", async (event, { htmlData, baseName }) => {
       { name: "All Files", extensions: ["*"] },
     ],
   });
-  
+
   if (result.canceled) return null;
-  
+
   const htmlPath = result.filePath;
-  
+  const dir = path.dirname(htmlPath);
+  // Derive base name from saved HTML filename (strip _report.html suffix)
+  const htmlBaseName = path.basename(htmlPath).replace(/_report\.html$/i, '');
+
   fs.writeFileSync(htmlPath, htmlData, "utf-8");
+
+  // Save JSON data chunks alongside the HTML
+  if (jsonChunks && jsonChunks.length > 0) {
+    for (let i = 0; i < jsonChunks.length; i++) {
+      const chunkFileName = `${htmlBaseName}_data_${String(i + 1).padStart(3, '0')}.json`;
+      fs.writeFileSync(path.join(dir, chunkFileName), jsonChunks[i], "utf-8");
+    }
+  }
+
   return { htmlPath };
+});
+
+// IPC: Save table as TSV file
+ipcMain.handle("save-tsv", async (event, { tsvData, defaultName }) => {
+  const result = await dialog.showSaveDialog({
+    title: "Save Table as TSV",
+    defaultPath: defaultName || "table.tsv",
+    filters: [
+      { name: "TSV Files", extensions: ["tsv"] },
+      { name: "Text Files", extensions: ["txt"] },
+      { name: "All Files", extensions: ["*"] },
+    ],
+  });
+  if (result.canceled) return null;
+  fs.writeFileSync(result.filePath, tsvData, "utf-8");
+  return { filePath: result.filePath };
 });
 
 // IPC: Application version (from package.json + build timestamp)

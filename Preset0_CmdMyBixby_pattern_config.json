@@ -6,7 +6,7 @@
     "GRPC CLOSE OUT"
   ],
   "success_patterns": [
-    "result_code=success"
+    "DialogText"
   ],
   "failure_patterns": [
     "result_code=fail"
@@ -14,7 +14,8 @@
   "clickable_patterns": {
     "conversationId": {
       "pattern": "conversationId\\[([^\\]]+)\\]",
-      "url_template": "https://sumologic.bixbydev.com/stg/conversation/?conversationId={value}",
+      "url_template1": "https://sumologic.bixbydev.com/stg/conversation/?conversationId={value}",
+      "url_template2": "http://10.91.196.65:5000/explorer/?conversationId={value}",
       "display_name": "ConversationID"
     },
     "requestId": {
