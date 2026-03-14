@@ -23,6 +23,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Screenshot
   selectScreenshotFolder: () => ipcRenderer.invoke("select-screenshot-folder"),
   runScreenshotCommand: (args) => ipcRenderer.invoke("run-screenshot-command", args),
+  initScreenshotFolder: () => ipcRenderer.invoke("init-screenshot-folder"),
+  copyScreenshotToClipboard: (filePath) => ipcRenderer.invoke("copy-screenshot-to-clipboard", filePath),
+  saveScreenshotAs: (filePath) => ipcRenderer.invoke("save-screenshot-as", filePath),
+  revealScreenshotInExplorer: (filePath) => ipcRenderer.invoke("reveal-screenshot-in-explorer", filePath),
 
 
 

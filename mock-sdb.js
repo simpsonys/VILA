@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const logFilePath = path.join(__dirname, 'Sample2.Log');
+const logFilePath = path.join(__dirname, 'test_cmd_mybixby_large.log');
 const logLines = fs.readFileSync(logFilePath, 'utf-8').split(/\r?\n/);
 
 let currentIndex = 0;

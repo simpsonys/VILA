@@ -63,6 +63,7 @@
       ]
     }
   },
+  "default_live_log_command": "sdb -s {deviceId} shell dlogutil -v VOICE_CLIENT",
   "table_columns": [
     { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId" },
     { "key": "requestId", "label": "Request ID", "width": "12%" },

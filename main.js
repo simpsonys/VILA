@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, nativeImage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
@@ -417,6 +417,56 @@ ipcMain.handle("select-screenshot-folder", async () => {
     return null;
   }
   return result.filePaths[0];
+});
+
+// IPC: Init default screenshot folder
+ipcMain.handle("init-screenshot-folder", async () => {
+  const storagePath = path.join(app.getPath("userData"), "ScreenshotStorage");
+  if (!fs.existsSync(storagePath)) {
+    fs.mkdirSync(storagePath, { recursive: true });
+  }
+  return storagePath;
+});
+
+// IPC: Copy screenshot to clipboard
+ipcMain.handle("copy-screenshot-to-clipboard", async (event, filePath) => {
+  try {
+    const image = nativeImage.createFromPath(filePath);
+    clipboard.writeImage(image);
+    return true;
+  } catch (err) {
+    writeToLog('error', 'Failed to copy screenshot to clipboard', err);
+    return false;
+  }
+});
+
+// IPC: Save screenshot as
+ipcMain.handle("save-screenshot-as", async (event, filePath) => {
+  try {
+    const defaultName = path.basename(filePath);
+    const result = await dialog.showSaveDialog({
+      title: "Save Screenshot As",
+      defaultPath: defaultName,
+      filters: [{ name: "Images", extensions: ["png", "jpg", "jpeg"] }]
+    });
+    if (result.canceled || !result.filePath) return null;
+    fs.copyFileSync(filePath, result.filePath);
+    return result.filePath;
+  } catch (err) {
+    writeToLog('error', 'Failed to save screenshot as', err);
+    return null;
+  }
+});
+
+// IPC: Reveal screenshot in explorer
+ipcMain.handle("reveal-screenshot-in-explorer", async (event, filePath) => {
+  try {
+    shell.showItemInFolder(filePath);
+    return true;
+  } catch (err) {
+    writeToLog('error', 'Failed to reveal screenshot', err);
+    return false;
+  }
 });
 
 // IPC: Run screenshot command

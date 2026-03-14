@@ -151,6 +151,18 @@ async function init() {
 
 // In init()
     if (window.electronAPI) {
+        // Init default screenshot folder
+        if (window.electronAPI.initScreenshotFolder) {
+            try {
+                screenshotSavePath = await window.electronAPI.initScreenshotFolder();
+                if (document.getElementById('screenshotFolder')) {
+                    document.getElementById('screenshotFolder').textContent = `Save path: ${screenshotSavePath}`;
+                }
+            } catch (err) {
+                console.error('Failed to init screenshot folder:', err);
+            }
+        }
+
         // Listen for file content loaded from the main process
         if (window.electronAPI.onFileContentLoaded) {
             window.electronAPI.onFileContentLoaded((data) => {
@@ -267,18 +279,27 @@ async function init() {
 // ...
 
 function updateDefaultCommands() {
-    const deviceId = document.getElementById('sdbDeviceInput').value;
-    if (!deviceId) return;
+    const deviceId = document.getElementById('sdbDeviceInput').value || '';
 
     // Update Live Log Command
     const liveLogCommandInput = document.getElementById('liveLogCommand');
-    liveLogCommandInput.value = `sdb -s ${deviceId} shell dlogutil -v VOICE_CLIENT`;
+    if (CONFIG && CONFIG.default_live_log_command) {
+        if (deviceId) {
+            liveLogCommandInput.value = CONFIG.default_live_log_command.replace('{deviceId}', deviceId);
+        } else {
+            liveLogCommandInput.value = CONFIG.default_live_log_command.replace(/\s*-s\s+{deviceId}/g, '').replace('{deviceId}', '');
+        }
+    } else {
+        liveLogCommandInput.value = deviceId ? `sdb -s ${deviceId} shell dlogutil -v VOICE_CLIENT` : `sdb shell dlogutil -v VOICE_CLIENT`;
+    }
 
     // Update Screenshot Command
     const screenshotCommandTextarea = document.getElementById('screenshotCommand');
-    screenshotCommandTextarea.value = `sdb -s ${deviceId} shell rm -rf /tmp/dump_screen.png
-sdb -s ${deviceId} shell enlightenment_info -dump_screen
-sdb -s ${deviceId} pull /tmp/dump_screen.png yymmdd_hhmmss.png`;
+    if (deviceId) {
+        screenshotCommandTextarea.value = `sdb -s ${deviceId} shell rm -rf /tmp/dump_screen.png\nsdb -s ${deviceId} shell enlightenment_info -dump_screen\nsdb -s ${deviceId} pull /tmp/dump_screen.png yymmdd_hhmmss.png`;
+    } else {
+        screenshotCommandTextarea.value = `sdb shell rm -rf /tmp/dump_screen.png\nsdb shell enlightenment_info -dump_screen\nsdb pull /tmp/dump_screen.png yymmdd_hhmmss.png`;
+    }
 }
 
 
@@ -466,6 +487,7 @@ function getDefaultConfig() {
             MakeMetaDataParams: { name: "MakeMetaDataParams", patterns: ["MakeMetaDataParams.*"] },
             Actions: { name: "Action", patterns: ["result_code"] }
         },
+        default_live_log_command: "sdb -s {deviceId} shell dlogutil -v VOICE_CLIENT",
         table_columns: [
             { key: "conversationId", label: "Conversation ID", width: "22%", clickable_key: "conversationId" },
             { key: "requestId", label: "Request ID", width: "12%" },
@@ -565,6 +587,14 @@ function setupEventListeners() {
         const stack = e.reason && e.reason.stack ? e.reason.stack : null;
         showErrorToast(msg, stack);
     });
+
+    // Raw log scroll
+    const rawLogViewer = document.getElementById('rawLogViewer');
+    if (rawLogViewer) {
+        rawLogViewer.addEventListener('scroll', () => {
+            _isRawLogUserScrolled = rawLogViewer.scrollHeight - rawLogViewer.scrollTop > rawLogViewer.clientHeight + 50;
+        });
+    }
 
     // Setup update listeners
     if (window.electronAPI) {
@@ -824,6 +854,8 @@ function prepareStreamingParsing(name, enc, fileSize) {
     streamBytesProcessed = 0;
 }
 
+let rawLogLines = []; // Store lines for raw log viewer search
+
 function handleStreamingChunk(chunkData) {
     if (parseInterrupt) {
         if (window.electronAPI && window.electronAPI.cancelFileRead) {
@@ -835,29 +867,24 @@ function handleStreamingChunk(chunkData) {
     const text = typeof chunkData === 'string' ? chunkData : chunkData.text;
     const byteLength = typeof chunkData === 'string' ? 0 : chunkData.byteLength;
 
-    // If in live streaming mode, update the raw log viewer
-    if (isLiveStreaming) {
-        const rawLogContent = document.getElementById('rawLogContent');
-        if (rawLogContent) {
-            rawLogContent.textContent += text;
-            // Keep the log from getting too long
-            const lines = rawLogContent.textContent.split('\n');
-            if (lines.length > 500) {
-                rawLogContent.textContent = lines.slice(lines.length - 500).join('\n');
-            }
-            // Auto-scroll to bottom
-            rawLogContent.parentElement.scrollTop = rawLogContent.parentElement.scrollHeight;
-        }
-    }
-    
-    streamBytesProcessed += byteLength;
-
     // SDB literal \n normalization: convert backslash+n before timestamps to real newlines
     let normText = text;
     if (normText.includes('\\n')) {
         normText = normText.replace(/\\n(?=\[?\d{2}-\d{2}-\d{4}\s)/g, '\n');
         normText = normText.replace(/\\n(?=\d{4,6}\.\d{1,3}\s+[VDIWEF]\/)/g, '\n');
     }
+
+    // If in live streaming mode, update the raw log viewer
+    if (isLiveStreaming) {
+        const linesToAdd = normText.split(/\r?\n/);
+        rawLogLines.push(...linesToAdd);
+        if (rawLogLines.length > 2000) {
+            rawLogLines = rawLogLines.slice(rawLogLines.length - 2000);
+        }
+        renderRawLogViewer();
+    }
+    
+    streamBytesProcessed += byteLength;
 
     streamLineBuffer += normText;
     const lines = streamLineBuffer.split(/\r?\n|\r/);
@@ -1310,17 +1337,80 @@ async function saveTableAsTsv() {
     }
 }
 
+// ── Table Column Resizing ──
+let isResizing = false;
+let currentResizingColIdx = -1;
+let startX = 0;
+let startWidth = 0;
+
+function initResizer(e, colIdx) {
+    e.stopPropagation();
+    isResizing = true;
+    currentResizingColIdx = colIdx;
+    startX = e.clientX;
+    
+    // Convert current width to pixels if it's a percentage
+    const thElements = document.querySelectorAll('#tableHead .th');
+    const th = thElements[colIdx];
+    startWidth = th.getBoundingClientRect().width;
+    
+    // Set all column widths to pixels to ensure smooth resizing
+    if (CONFIG && CONFIG.table_columns) {
+        CONFIG.table_columns.forEach((col, idx) => {
+            if (col.width.toString().includes('%')) {
+                const el = thElements[idx];
+                if (el) col.width = el.getBoundingClientRect().width + 'px';
+            }
+        });
+    }
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+}
+
+function onMouseMove(e) {
+    if (!isResizing) return;
+    const diff = e.clientX - startX;
+    let newWidth = startWidth + diff;
+    if (newWidth < 50) newWidth = 50; // min width
+    
+    if (CONFIG && CONFIG.table_columns && CONFIG.table_columns[currentResizingColIdx]) {
+        CONFIG.table_columns[currentResizingColIdx].width = newWidth + 'px';
+        applyGridTemplateColumns();
+    }
+}
+
+function onMouseUp() {
+    isResizing = false;
+    currentResizingColIdx = -1;
+    document.removeEventListener('mousemove', onMouseMove);
+    document.removeEventListener('mouseup', onMouseUp);
+}
+
+function applyGridTemplateColumns() {
+    if (!CONFIG || !CONFIG.table_columns) return;
+    const gridCols = CONFIG.table_columns.map(c => c.width).join(' ');
+    document.getElementById('tableHead').style.gridTemplateColumns = gridCols;
+    const filtersEl = document.getElementById('tableFilters');
+    if (filtersEl) filtersEl.style.gridTemplateColumns = gridCols;
+    
+    const rows = document.querySelectorAll('.table-body .tr');
+    rows.forEach(row => {
+        row.style.gridTemplateColumns = gridCols;
+    });
+}
+
 function renderTable() {
     renderStats();
     const cols = CONFIG.table_columns;
     const gridCols = cols.map(c => c.width).join(' ');
 
     document.getElementById('tableHead').style.gridTemplateColumns = gridCols;
-    document.getElementById('tableHead').innerHTML = cols.map(c => {
+    document.getElementById('tableHead').innerHTML = cols.map((c, i) => {
         let icon = '<span style="opacity:0.25">⇅</span>';
         if (sortState[c.key] === 'asc') icon = '↑';
         else if (sortState[c.key] === 'desc') icon = '↓';
-        return `<div class="th" onclick="cycleSort('${c.key}')" title="Sort by ${c.label}">${c.label}<span class="sort-icon">${icon}</span></div>`;
+        return `<div class="th" onclick="cycleSort('${c.key}')" title="Sort by ${c.label}">${c.label}<span class="sort-icon">${icon}</span><div class="col-resizer" onmousedown="initResizer(event, ${i})"></div></div>`;
     }).join('');
 
     const filtersEl = document.getElementById('tableFilters');
@@ -1429,6 +1519,49 @@ function cycleSort(col) {
     else if (sortState[col] === 'desc') delete sortState[col];
     else sortState = { [col]: 'asc' };
     renderTable();
+}
+
+// ── Search & Render Raw Log Viewer ──
+let rawLogSearchTerm = '';
+function searchRawLog() {
+    const box = document.getElementById('rawLogSearchBox');
+    if (!box) return;
+    rawLogSearchTerm = box.value.toLowerCase();
+    renderRawLogViewer();
+}
+
+let _isRawLogUserScrolled = false;
+function renderRawLogViewer() {
+    const content = document.getElementById('rawLogContent');
+    if (!content) return;
+    
+    let html = '';
+    const term = rawLogSearchTerm;
+    
+    for (let i = 0; i < rawLogLines.length; i++) {
+        const line = rawLogLines[i];
+        if (!line) continue;
+        if (term && !line.toLowerCase().includes(term)) continue;
+        
+        // makeClickable handles escaping
+        let displayLine = makeClickable(line);
+        
+        if (term) {
+            // Very simple highlight: replace text outside of tags
+            const regex = new RegExp(`(?![^<]+>)(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+            displayLine = displayLine.replace(regex, '<mark style="background:#fbbf24;color:#000">$1</mark>');
+        }
+        
+        html += displayLine + '\n';
+    }
+    
+    content.innerHTML = html;
+    
+    // Auto-scroll logic
+    const parent = content.parentElement;
+    if (!_isRawLogUserScrolled) {
+        parent.scrollTop = parent.scrollHeight;
+    }
 }
 
 // ── Streaming Mode ──
@@ -2049,18 +2182,25 @@ async function showDetail(idx) {
 function closeModal() { document.getElementById('modal').classList.remove('open'); }
 
 // ── Screenshots ──
+let currentScreenshotPath = null;
 async function showScreenshotViewer(filePath) {
     if (!window.electronAPI) return;
     const base64 = await window.electronAPI.readScreenshot(filePath);
     if (!base64) { showErrorToast('Failed to load screenshot'); return; }
+    currentScreenshotPath = filePath;
     screenshotViewerScale = 1;
     document.getElementById('screenshotImage').src = `data:image/png;base64,${base64}`;
     document.getElementById('screenshotImage').style.transform = 'scale(1)';
     document.getElementById('zoomLevel').textContent = '100%';
     document.getElementById('screenshotViewer').classList.add('open');
+    document.body.style.overflow = 'hidden';
 }
 
-function closeScreenshotViewer() { document.getElementById('screenshotViewer').classList.remove('open'); }
+function closeScreenshotViewer() { 
+    currentScreenshotPath = null;
+    document.getElementById('screenshotViewer').classList.remove('open');
+    document.body.style.overflow = '';
+}
 
 function changeScreenshotZoom(delta) { screenshotViewerScale = Math.min(Math.max(0.2, screenshotViewerScale + delta), 3); updateScreenshotZoom(); }
 
@@ -2073,6 +2213,27 @@ function updateScreenshotZoom() {
 }
 
 function screenshotWheel(e) { if (e.ctrlKey) { e.preventDefault(); changeScreenshotZoom(e.deltaY < 0 ? 0.1 : -0.1); } }
+
+async function copyScreenshotToClipboard(e) {
+    e.stopPropagation();
+    if (!currentScreenshotPath || !window.electronAPI) return;
+    const success = await window.electronAPI.copyScreenshotToClipboard(currentScreenshotPath);
+    if (success) showToast("Image copied to clipboard!");
+    else showErrorToast("Failed to copy image to clipboard");
+}
+
+async function saveScreenshotAs(e) {
+    e.stopPropagation();
+    if (!currentScreenshotPath || !window.electronAPI) return;
+    const newPath = await window.electronAPI.saveScreenshotAs(currentScreenshotPath);
+    if (newPath) showToast(`Image saved as ${newPath}`);
+}
+
+async function revealScreenshotInExplorer(e) {
+    e.stopPropagation();
+    if (!currentScreenshotPath || !window.electronAPI) return;
+    await window.electronAPI.revealScreenshotInExplorer(currentScreenshotPath);
+}
 
 // ── Export Logic ──
 async function doExport() {
