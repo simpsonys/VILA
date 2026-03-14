@@ -1149,13 +1149,18 @@ function parseBlock(lines, lineNumbers = []) {
 
     let hasS = false, hasF = false;
     for (const l of lines) {
-        for (const sp of CONFIG.success_patterns) if (l.includes(sp)) { hasS = true; e.successLine = l; }
+        for (const sp of (CONFIG.success_patterns || [])) if (l.includes(sp)) { hasS = true; e.successLine = l; }
         if (CONFIG.failure_patterns) for (const fp of CONFIG.failure_patterns) if (l.includes(fp)) { hasF = true; e.failLines.push(l); }
     }
-    if (hasS && !hasF) e.result = 'SUCCESS';
-    else if (hasS && hasF) e.result = 'PARTIAL';
-    else if (!hasS && hasF) e.result = 'FAIL';
-    else e.result = 'Unknown';
+
+    if (CONFIG && CONFIG.enable_result_judgment === false) {
+        e.result = 'N/A';
+    } else {
+        if (hasS && !hasF) e.result = 'SUCCESS';
+        else if (hasS && hasF) e.result = 'PARTIAL';
+        else if (!hasS && hasF) e.result = 'FAIL';
+        else e.result = 'Unknown';
+    }
 
     for (const [gK, gC] of Object.entries(CONFIG.pattern_groups || {})) {
         const ml = [];
@@ -1268,6 +1273,11 @@ function finishParsing() {
 }
 
 function renderStats() {
+    if (CONFIG && CONFIG.enable_result_judgment === false) {
+        document.getElementById('statsBar').innerHTML = `<div class="stat"><span class="stat-val" style="color:#60dcfa">${entries.length}</span><span class="stat-label">Total Utterances</span></div>`;
+        return { total: entries.length };
+    }
+
     const s = { total: entries.length, success: 0, fail: 0, partial: 0, unknown: 0 };
     for (const e of entries) {
         if (e.result === 'SUCCESS') s.success++;
@@ -1862,9 +1872,12 @@ function mkC(t){if(!t)return esc(t);let r=esc(t);for(const[,c]of Object.entries(
         { l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' },
         { l: 'Request ID', v: e.requestId, ck: 'requestId' },
         { l: 'Capsule Goal', v: e.capsuleGoal, allV: e._allMatches && e._allMatches.capsuleGoal },
-        { l: 'Utterance', v: e.utterance },
-        { l: 'Result', v: e.result, b: true }
+        { l: 'Utterance', v: e.utterance }
     ];
+    if (CONFIG && CONFIG.enable_result_judgment !== false) {
+        metas.push({ l: 'Result', v: e.result, b: true });
+    }
+    
     for (const m of metas) {
         metaHtml += `<div class="mc"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="ml">${m.l}</div>`;
         if (m.l === 'Conversation ID' && m.v) {
@@ -1970,7 +1983,7 @@ body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-seri
 .badge-SUCCESS{background:#0d3b24;color:#34d399;border:1px solid #166534}
 .badge-FAIL{background:#3b0d0d;color:#f87171;border:1px solid #7f1d1d}
 .badge-PARTIAL{background:#3b2e0d;color:#fbbf24;border:1px solid #78350f}
-.badge-Unknown{background:#1e1e2e;color:#94a3b8;border:1px solid #334155}
+.badge-Unknown,.badge-N\\/A{background:#1e1e2e;color:#94a3b8;border:1px solid #334155}
 .se{margin-bottom:20px}.st{font-size:12px;font-weight:700;margin-bottom:8px;text-transform:uppercase;letter-spacing:1px}
 .sb2{background:#0d3b24;border:1px solid #166534;border-radius:6px;padding:10px 14px;font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre-wrap;word-break:break-all}
 .fb{background:#3b0d0d;border:1px solid #7f1d1d;border-radius:6px;padding:10px 14px;font-family:monospace;font-size:12px;color:#e2e8f0;white-space:pre-wrap;word-break:break-all}
@@ -2045,7 +2058,17 @@ async function displayDetailWindow(data) {
     h += `<div class="modal-hdr" style="border-bottom:1px solid #1e2433"><div style="flex:1"><div style="font-size:18px;font-weight:700">Utterance Detail #${utteranceIndex}</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()">🛠 DevTools</button></div></div>`;
     h += '<div class="modal-content" style="flex:1;overflow-y:auto"><div class="meta-grid">';
 
-    [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Capsule Goal', v: e.capsuleGoal, allV: e._allMatches && e._allMatches.capsuleGoal }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
+    const metaCards = [
+        { l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, 
+        { l: 'Request ID', v: e.requestId, ck: 'requestId' }, 
+        { l: 'Capsule Goal', v: e.capsuleGoal, allV: e._allMatches && e._allMatches.capsuleGoal }, 
+        { l: 'Utterance', v: e.utterance }
+    ];
+    if (CONFIG && CONFIG.enable_result_judgment !== false) {
+        metaCards.push({ l: 'Result', v: e.result, b: 1 });
+    }
+
+    metaCards.forEach(m => {
         h += `<div class="meta-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="meta-label">${m.l}</div>`;
         if (m.l === 'Conversation ID' && m.v) {
             h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${m.v.replace(/'/g, "\\'")}')" title="Copy ID">📋 Copy</button>`;
@@ -2144,7 +2167,17 @@ async function showDetail(idx) {
     let h = `<div class="modal-hdr"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()">🛠 DevTools</button><button class="modal-close" onclick="closeModal()" style="position:static;margin-left:10px">✕</button></div></div>`;
     h += '<div class="modal-content"><div class="meta-grid">';
 
-    [{ l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, { l: 'Request ID', v: e.requestId, ck: 'requestId' }, { l: 'Capsule Goal', v: e.capsuleGoal, allV: e._allMatches && e._allMatches.capsuleGoal }, { l: 'Utterance', v: e.utterance }, { l: 'Result', v: e.result, b: 1 }].forEach(m => {
+    const metaCards = [
+        { l: 'Conversation ID', v: e.conversationId, ck: 'conversationId' }, 
+        { l: 'Request ID', v: e.requestId, ck: 'requestId' }, 
+        { l: 'Capsule Goal', v: e.capsuleGoal, allV: e._allMatches && e._allMatches.capsuleGoal }, 
+        { l: 'Utterance', v: e.utterance }
+    ];
+    if (CONFIG && CONFIG.enable_result_judgment !== false) {
+        metaCards.push({ l: 'Result', v: e.result, b: 1 });
+    }
+
+    metaCards.forEach(m => {
         h += `<div class="meta-card"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="meta-label">${m.l}</div>`;
         if (m.l === 'Conversation ID' && m.v) {
             h += `<button class="btn btn-ghost" style="padding:2px 6px;font-size:10px" onclick="copyToClipboard('${m.v.replace(/'/g, "\\'")}')" title="Copy ID">📋 Copy</button>`;
@@ -2388,7 +2421,7 @@ tr.dr:hover{background:#111625}
 .badge-SUCCESS{background:#0d3b24;color:#34d399;border:1px solid #166534}
 .badge-FAIL{background:#3b0d0d;color:#f87171;border:1px solid #7f1d1d}
 .badge-PARTIAL{background:#3b2e0d;color:#fbbf24;border:1px solid #78350f}
-.badge-Unknown{background:#1e1e2e;color:#94a3b8;border:1px solid #334155}
+.badge-Unknown,.badge-N\\/A{background:#1e1e2e;color:#94a3b8;border:1px solid #334155}
 .utt{color:#60dcfa;text-decoration:underline;cursor:pointer}
 .cl{color:#60dcfa;text-decoration:underline;cursor:pointer}
 .cl:hover{color:#a8e6cf}
@@ -2461,7 +2494,7 @@ async function loadChunk(idx){var n=String(idx+1).padStart(3,'0');var url=getBN(
 async function changePageSize(val){pageSize=val==='all'?Infinity:parseInt(val);var need=pageSize===Infinity?totalChunks:Math.ceil(pageSize/50);for(var i=loadedChunks;i<need&&i<totalChunks;i++){try{await loadChunk(i)}catch(e){break}}rt()}
 function init2(){document.getElementById('al').style.display='none';document.getElementById('fp').style.display='none';document.getElementById('mainui').style.display='';
 document.getElementById('fs').textContent=totalEntries+' utterances';
-document.getElementById('sb').innerHTML=[{l:'Total',v:S.total,c:'#60dcfa'},{l:'Success',v:S.success,c:'#34d399'},{l:'Fail',v:S.fail,c:'#f87171'},{l:'Partial',v:S.partial,c:'#fbbf24'},{l:'Unknown',v:S.unknown,c:'#94a3b8'},{l:'Pass Rate',v:S.passRate+'%',c:'#a78bfa'}].map(function(s){return'<div class="stat"><b style="color:'+s.c+'">'+s.v+'</b><span>'+s.l+'</span></div>'}).join('');
+document.getElementById('sb').innerHTML= (C && C.enable_result_judgment === false) ? '<div class="stat"><b style="color:#60dcfa">'+S.total+'</b><span>Total Utterances</span></div>' : [{l:'Total',v:S.total,c:'#60dcfa'},{l:'Success',v:S.success,c:'#34d399'},{l:'Fail',v:S.fail,c:'#f87171'},{l:'Partial',v:S.partial,c:'#fbbf24'},{l:'Unknown',v:S.unknown,c:'#94a3b8'},{l:'Pass Rate',v:S.passRate+'%',c:'#a78bfa'}].map(function(s){return'<div class="stat"><b style="color:'+s.c+'">'+s.v+'</b><span>'+s.l+'</span></div>'}).join('');
 document.getElementById('th').innerHTML='<tr>'+C.table_columns.map(function(c){return'<th class="sh" onclick="ds2(\\''+c.key+'\\')\" id=\"sh_'+c.key+'">'+c.label+' <span id="si_'+c.key+'" style="opacity:0.35">⇅</span></th>'}).join('')+'</tr>';
 document.getElementById('tf').innerHTML='<tr>'+C.table_columns.map(function(c){return'<th class="fh"><input class="fi" placeholder="'+c.label+'..." data-col="'+c.key+'" oninput="cfCh(this)"></th>'}).join('')+'</tr>';
 rt()}
@@ -2471,7 +2504,9 @@ function gf2(){var q=(document.getElementById('si').value||'').toLowerCase();var
 function rt(){var rows=gf2(),cols=C.table_columns;var showing=pageSize===Infinity?totalEntries:Math.min(pageSize,totalEntries);document.getElementById('cntlbl').textContent='Showing '+showing+'/'+totalEntries+' | '+rows.length+' after filter';document.getElementById('tb').innerHTML=rows.map(function(e,i){return'<tr class="dr" style="cursor:pointer" onclick="sd3('+i+')">'+cols.map(function(c){var v=e[c.key];var sv=v||'N/A';if(c.type==='badge')return'<td><span class="badge badge-'+sv+'">'+sv+'</span></td>';if(c.type==='utterance')return'<td class="wrap"><span class="utt">'+esc2(sv)+'</span></td>';if(c.clickable_key&&C.clickable_patterns[c.clickable_key]&&v){var cp=C.clickable_patterns[c.clickable_key];var t1=gt1(cp),t2=gt2(cp);if(t1||t2){var lnk='<div style="display:flex;flex-direction:column;gap:2px">';if(t1)lnk+='<a class="cl" href="'+t1.replace('{value}',v)+'" target="_blank" onclick="event.stopPropagation()">'+esc2(v)+'</a>';if(t2)lnk+='<a class="cl" href="'+t2.replace('{value}',v)+'" target="_blank" onclick="event.stopPropagation()" style="color:#a8e6cf;font-size:0.88em">'+esc2(v)+'</a>';lnk+='</div>';return'<td class="wrap">'+lnk+'</td>'}}if(c.type==='log')return'<td class="wrap">'+mkC(sv)+'</td>';return'<td>'+esc2(sv)+'</td>'}).join('')+'</tr>'}).join('')}
 function sd3(i){var e=fD2[i];if(!e)return;var h='<div class="mh"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">'+esc2(e.utterance)+'</div></div><button class="cb" onclick="cm()">✕</button></div><div style="padding:20px 28px">';
 h+='<div class="mg">';
-[{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Capsule Goal',v:e.capsuleGoal,allV:e._allMatches&&e._allMatches.capsuleGoal},{l:'Utterance',v:e.utterance},{l:'Result',v:e.result,b:1}].forEach(function(m){h+='<div class="mc"><div class="ml">'+m.l+'</div>';if(m.b){h+='<span class="badge badge-'+m.v+'">'+m.v+'</span>'}else if(m.ck&&C.clickable_patterns&&C.clickable_patterns[m.ck]&&m.v){var cp=C.clickable_patterns[m.ck];var t1=gt1(cp),t2=gt2(cp);var lnk='';if(t1)lnk+='<a href="'+t1.replace('{value}',m.v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline;font-size:13px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';else lnk=esc2(m.v);if(t2)lnk+='<br><a href="'+t2.replace('{value}',m.v)+'" target="_blank" style="color:#a8e6cf;text-decoration:underline;font-size:12px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';h+='<div class="mv">'+lnk+'</div>'}else if(m.allV&&m.allV.length>1){h+='<div class="mv">'+m.allV.map(function(v,i){return'<span style="'+(i===m.allV.length-1?'color:#e2e8f0;font-weight:600':'color:#64748b;text-decoration:line-through')+'">'+esc2(v)+'</span>'}).join('<span style="color:#334155;margin:0 4px">→</span>')+'</div>'}else{h+='<div class="mv">'+esc2(m.v)+'</div>'}h+='</div>'});
+var metaArr = [{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Capsule Goal',v:e.capsuleGoal,allV:e._allMatches&&e._allMatches.capsuleGoal},{l:'Utterance',v:e.utterance}];
+if (C && C.enable_result_judgment !== false) metaArr.push({l:'Result',v:e.result,b:1});
+metaArr.forEach(function(m){h+='<div class="mc"><div class="ml">'+m.l+'</div>';if(m.b){h+='<span class="badge badge-'+m.v+'">'+m.v+'</span>'}else if(m.ck&&C.clickable_patterns&&C.clickable_patterns[m.ck]&&m.v){var cp=C.clickable_patterns[m.ck];var t1=gt1(cp),t2=gt2(cp);var lnk='';if(t1)lnk+='<a href="'+t1.replace('{value}',m.v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline;font-size:13px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';else lnk=esc2(m.v);if(t2)lnk+='<br><a href="'+t2.replace('{value}',m.v)+'" target="_blank" style="color:#a8e6cf;text-decoration:underline;font-size:12px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';h+='<div class="mv">'+lnk+'</div>'}else if(m.allV&&m.allV.length>1){h+='<div class="mv">'+m.allV.map(function(v,i){return'<span style="'+(i===m.allV.length-1?'color:#e2e8f0;font-weight:600':'color:#64748b;text-decoration:line-through')+'">'+esc2(v)+'</span>'}).join('<span style="color:#334155;margin:0 4px">→</span>')+'</div>'}else{h+='<div class="mv">'+esc2(m.v)+'</div>'}h+='</div>'});
 h+='</div>';
 if(e.successLine)h+='<div class="se"><div class="st" style="color:#34d399">✓ Success Match</div><div class="sb2">'+mkC(e.successLine)+'</div></div>';
 if(e.failLines&&e.failLines.length)h+='<div class="se"><div class="st" style="color:#f87171">✗ Failure Matches</div><div class="fb2">'+e.failLines.map(function(l){return mkC(l)}).join('<br>')+'</div></div>';

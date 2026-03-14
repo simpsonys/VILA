@@ -64,12 +64,12 @@
     }
   },
   "default_live_log_command": "sdb -s {deviceId} shell dlogutil -v VOICE_CLIENT",
+  "enable_result_judgment": false,
   "table_columns": [
     { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId" },
     { "key": "requestId", "label": "Request ID", "width": "12%" },
     { "key": "capsuleGoal", "label": "Capsule Goal", "width": "12%" },
     { "key": "utterance", "label": "Utterance", "width": "28%", "type": "utterance" },
-    { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
-    { "key": "successLine", "label": "Success Match", "width": "20%", "type": "log" }
+    { "key": "successLine", "label": "Success Match", "width": "28%", "type": "log" }
   ]
 }

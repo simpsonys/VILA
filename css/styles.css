@@ -218,7 +218,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
 .badge-SUCCESS { background: #0d3b24; color: #34d399; border: 1px solid #166534; }
 .badge-FAIL { background: #3b0d0d; color: #f87171; border: 1px solid #7f1d1d; }
 .badge-PARTIAL { background: #3b2e0d; color: #fbbf24; border: 1px solid #78350f; }
-.badge-Unknown { background: #1e1e2e; color: #94a3b8; border: 1px solid #334155; }
+.badge-Unknown, .badge-N\/A { background: #1e1e2e; color: #94a3b8; border: 1px solid #334155; }
 
 .utt-link { color: #60dcfa; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; font-family: inherit; }
 .click-link { color: #60dcfa; text-decoration: underline; cursor: pointer; }
