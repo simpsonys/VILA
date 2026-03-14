@@ -44,6 +44,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   switchPreset: (fileName) => ipcRenderer.invoke("switch-preset", fileName),
   addCustomPreset: () => ipcRenderer.invoke("add-custom-preset"),
   deletePreset: (fileName) => ipcRenderer.invoke("delete-preset", fileName),
+  resetPreset: (fileName) => ipcRenderer.invoke("reset-preset", fileName),
   
   // Logging
   logMessage: (log) => ipcRenderer.send("log-message", log),

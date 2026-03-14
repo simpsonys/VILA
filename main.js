@@ -236,6 +236,33 @@ ipcMain.handle("delete-preset", async (event, fileName) => {
   }
 });
 
+// IPC: Reset preset config file to factory defaults
+ipcMain.handle("reset-preset", async (event, fileName) => {
+  try {
+    const userDataPath = app.getPath("userData");
+    const configPath = path.join(userDataPath, fileName);
+    
+    let sourcePath;
+    if (fileName === CONFIG_NAME) {
+      sourcePath = path.join(__dirname, "default_config.json");
+    } else {
+      sourcePath = path.join(__dirname, fileName);
+    }
+    
+    if (fs.existsSync(sourcePath)) {
+      fs.copyFileSync(sourcePath, configPath);
+      console.log(`Preset reset to default: ${fileName}`);
+      const data = fs.readFileSync(configPath, "utf-8");
+      return { success: true, config: JSON.parse(data) };
+    } else {
+      return { success: false, reason: "This preset cannot be reset because it is a custom preset." };
+    }
+  } catch (e) {
+    console.error("Failed to reset preset:", e);
+    return { success: false, reason: e.message };
+  }
+});
+
 // IPC: Open config file location
 ipcMain.handle("open-config-folder", async () => {
   const configPath = getConfigPath();

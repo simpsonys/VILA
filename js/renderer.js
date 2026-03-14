@@ -469,6 +469,56 @@ async function deleteCurrentPreset() {
     }
 }
 
+// Reset current preset to factory defaults
+async function resetCurrentPreset() {
+    if (!currentConfigFileName) {
+        showErrorToast('No preset selected.');
+        return;
+    }
+    
+    if (!window.electronAPI || !window.electronAPI.resetPreset) {
+        showErrorToast('Reset preset API not available.');
+        return;
+    }
+    
+    if (!confirm(`Are you sure you want to reset '${currentConfigFileName}' to its default factory settings? Any custom modifications to this file will be lost.`)) {
+        return;
+    }
+
+    try {
+        const result = await window.electronAPI.resetPreset(currentConfigFileName);
+        if (result && result.success && result.config) {
+            CONFIG = result.config;
+            showToast(`Preset reset to default.`);
+            // Refresh commands in case the default_live_log_command changed
+            updateDefaultCommands();
+            
+            // Re-analyze current file if loaded
+            if (currentFileName) {
+                // Clear existing results before re-analysis
+                entries = [];
+                filteredData = [];
+                document.getElementById('tableBody').innerHTML = '';
+                document.getElementById('tableHead').innerHTML = '';
+                document.getElementById('tableFilters').innerHTML = '';
+                document.getElementById('statsBar').innerHTML = '';
+                initColumnFilters();
+
+                if (currentFilePath && window.electronAPI.openAndReadFile) {
+                    window.electronAPI.openAndReadFile(currentFilePath);
+                } else if (currentRawText) {
+                    startParsing(currentRawText, currentFileName, currentEncoding || 'utf-8');
+                }
+            }
+        } else {
+            showErrorToast(result.reason || 'Failed to reset preset.');
+        }
+    } catch (err) {
+        console.error('Failed to reset preset:', err);
+        showErrorToast('Failed to reset preset: ' + err.message);
+    }
+}
+
 function getDefaultConfig() {
     return {
         start_patterns: ["cmd_from_mockapp", "REQUEST OPEN SERVER"],
