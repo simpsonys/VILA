@@ -2248,7 +2248,7 @@ function renderSeqSVG(src){
 body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;padding:0}
 .hdr{background:#0b0e15;border-bottom:1px solid #1e2433;padding:16px 28px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10}
 .title{font-size:18px;font-weight:700}.sub{font-size:12px;color:#64748b;margin-top:2px}
-.content{padding:24px 28px;max-width:1200px;margin:0 auto}
+.content{padding:24px 28px}
 .mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:24px}
 .mc{background:#0f1117;border-radius:8px;padding:12px 16px;border:1px solid #1e2433}
 .ml{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px}
