@@ -171,7 +171,11 @@ sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
             
             <!-- Live Log Viewer -->
             <div class="raw-log-viewer" id="rawLogViewer" style="display:none;position:relative;">
-                <div style="position:sticky;top:10px;z-index:10;display:flex;justify-content:flex-end;padding-right:10px;margin-bottom:-28px;pointer-events:none;">
+                <div style="position:sticky;top:10px;z-index:10;display:flex;justify-content:space-between;align-items:center;padding:0 10px;margin-bottom:-36px;pointer-events:none;">
+                    <div style="display:flex;gap:6px;pointer-events:auto;">
+                        <button class="btn btn-ghost" onclick="toggleLiveStream()" style="padding:3px 10px;font-size:11px;color:#f87171;border-color:rgba(248,113,113,0.4);background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">■ Stop</button>
+                        <button class="btn btn-ghost" onclick="clearLiveLog()" style="padding:3px 10px;font-size:11px;background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">🗑 Clear</button>
+                    </div>
                     <input class="search-input" id="rawLogSearchBox" placeholder="Search in Live Log..." oninput="searchRawLog()" style="width:200px;padding:4px 10px;font-size:12px;pointer-events:auto;background:#0f1117;box-shadow:0 2px 8px rgba(0,0,0,0.5);">
                 </div>
                 <pre id="rawLogContent"></pre>

@@ -1823,6 +1823,29 @@ function toggleLiveStream() {
     }
 }
 
+function clearLiveLog() {
+    // Reset raw log viewer
+    rawLogLines = [];
+    document.getElementById('rawLogContent').textContent = '';
+
+    // Reset parsed entries and table
+    entries = [];
+    renderTable();
+
+    // Reset streaming state so next start_pattern begins fresh
+    streamBlockBuffer = [];
+    streamBlockLineNumbers = [];
+    streamInBlock = false;
+    streamFoundCount = 0;
+    streamMatchedCount = 0;
+
+    // Reset progress counters
+    const el1 = document.getElementById('progFound');
+    const el2 = document.getElementById('progMatched');
+    if (el1) el1.textContent = '0';
+    if (el2) el2.textContent = '0';
+}
+
 async function selectScreenshotFolder() {
     if (!window.electronAPI) {
         showErrorToast('This feature is only available in the Electron app.');
