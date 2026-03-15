@@ -236,7 +236,7 @@ async function init() {
             await refreshPresetList();
         } catch (err) {
             console.error("Error refreshing presets:", err);
-            document.getElementById('presetRadios').innerHTML = '<span style="color:red;font-size:11px">Error loading presets</span>';
+            document.getElementById('presetRadiosWrap').innerHTML = '<span style="color:red;font-size:11px">Error loading presets</span>';
         }
 
         // 4. Config 로드
@@ -256,7 +256,7 @@ async function init() {
     } else {
         // 웹 브라우저 단독 실행 시 (Electron 아님)
         console.warn("Electron API not found. Presets disabled.");
-        document.getElementById('presetRadios').innerHTML = '<span style="font-size:11px;color:#64748b">Not in Electron mode</span>';
+        document.getElementById('presetRadiosWrap').innerHTML = '<span style="font-size:11px;color:#64748b">Not in Electron mode</span>';
     }
 
     // In init()
@@ -271,6 +271,14 @@ async function init() {
         console.log("Using default config (fallback)");
     }
     
+    // Update SDB Device Input if config has a default value
+    if (CONFIG && CONFIG.default_sdb_device) {
+        const sdbDeviceInput = document.getElementById('sdbDeviceInput');
+        if (sdbDeviceInput) {
+            sdbDeviceInput.value = CONFIG.default_sdb_device;
+        }
+    }
+
     updateDefaultCommands(); // Set initial commands
     initColumnFilters();
     setupEventListeners();
@@ -327,11 +335,11 @@ async function refreshPresetList() {
         return a.localeCompare(b);
     });
 
-    const container = document.getElementById('presetRadios');
+    const container = document.getElementById('presetRadiosWrap');
     container.innerHTML = '';
 
     if (!sortedPresets || sortedPresets.length === 0) {
-        container.innerHTML = '<span style="font-size:11px;color:#64748b">No presets found. Check config folder.</span>';
+        container.innerHTML = '<span style="font-size:11px;color:#64748b;padding:6px 14px">No presets found. Check config folder.</span>';
         return;
     }
 
@@ -347,13 +355,15 @@ async function refreshPresetList() {
             displayName = displayName.replace(/_/g, ' ');
         }
 
-        const label = document.createElement('label');
-        label.className = 'radio-item';
-        label.innerHTML = `
-      <input type="radio" name="presetConfig" value="${fileName}" onchange="switchPreset('${fileName}')">
-      ${displayName}
-    `;
-        container.appendChild(label);
+        const btn = document.createElement('button');
+        btn.className = 'mode-btn';
+        btn.dataset.preset = fileName;
+        if (currentConfigFileName === fileName) {
+            btn.classList.add('active');
+        }
+        btn.innerHTML = `<span class="mode-icon">🟢</span> ${displayName}`;
+        btn.onclick = () => switchPreset(fileName);
+        container.appendChild(btn);
     });
 }
 
@@ -378,6 +388,17 @@ async function switchPreset(fileName) {
             CONFIG = result.config;
             currentConfigFileName = result.fileName || fileName;
             updatePresetRadioSelection(currentConfigFileName);
+            
+            // Update SDB Device Input if preset has a default value
+            if (CONFIG && CONFIG.default_sdb_device) {
+                const sdbDeviceInput = document.getElementById('sdbDeviceInput');
+                if (sdbDeviceInput) {
+                    sdbDeviceInput.value = CONFIG.default_sdb_device;
+                }
+            }
+            // Update the live log command input with new config and device
+            updateDefaultCommands();
+            
             console.log('Switched to preset:', currentConfigFileName);
 
             // Re-analyze current file if loaded
@@ -407,9 +428,14 @@ async function switchPreset(fileName) {
 // Update radio button selection to match current config
 function updatePresetRadioSelection(fileName) {
     if (!fileName) return;
-    const radios = document.querySelectorAll('input[name="presetConfig"]');
-    radios.forEach(radio => {
-        radio.checked = (radio.value === fileName);
+    const btns = document.querySelectorAll('#presetRadiosWrap .mode-btn');
+    btns.forEach(btn => {
+        if (btn.dataset.preset === fileName) {
+            btn.classList.add('active');
+            updatePresetLabel(fileName, btn.textContent.replace('🟢 ', '').trim());
+        } else {
+            btn.classList.remove('active');
+        }
     });
 }
 
@@ -1629,6 +1655,56 @@ function setStreamingMode(enabled) {
     streamingMode = enabled;
     localStorage.setItem('streamingMode', streamingMode);
     updateModeButtons();
+}
+
+// ── Preset Menu ──
+let presetMenuVisible = false;
+function togglePresetMenu() {
+    presetMenuVisible = !presetMenuVisible;
+    const presetMenu = document.getElementById('presetMenu');
+    const presetBtn = document.getElementById('presetToggleBtn');
+    if (presetMenuVisible) {
+        presetMenu.style.display = 'flex';
+        presetBtn.classList.add('active');
+        presetBtn.style.color = '#60dcfa';
+        presetBtn.style.borderColor = '#2a4a7c';
+        presetBtn.style.background = 'linear-gradient(135deg, #1a3a5c, #1e2d5c)';
+    } else {
+        presetMenu.style.display = 'none';
+        presetBtn.classList.remove('active');
+        presetBtn.style.color = '';
+        presetBtn.style.borderColor = '';
+        presetBtn.style.background = '';
+    }
+}
+
+// Update preset label
+function updatePresetLabel(fileName, displayName) {
+    const label = document.getElementById('currentPresetLabel');
+    if (label) {
+        label.textContent = displayName || fileName.replace(/Preset\d+_(.+)_pattern_config\.json/, '$1').replace(/_/g, ' ').replace('pattern_config.json', 'Default');
+    }
+}
+
+// ── DEV Menu ──
+let devMenuVisible = false;
+function toggleDevMenu() {
+    devMenuVisible = !devMenuVisible;
+    const devMenu = document.getElementById('devMenu');
+    const devBtn = document.getElementById('devToggleBtn');
+    if (devMenuVisible) {
+        devMenu.style.display = 'flex';
+        devBtn.classList.add('active');
+        devBtn.style.color = '#60dcfa';
+        devBtn.style.borderColor = '#2a4a7c';
+        devBtn.style.background = 'linear-gradient(135deg, #1a3a5c, #1e2d5c)';
+    } else {
+        devMenu.style.display = 'none';
+        devBtn.classList.remove('active');
+        devBtn.style.color = '';
+        devBtn.style.borderColor = '';
+        devBtn.style.background = '';
+    }
 }
 
 function updateModeButtons() {

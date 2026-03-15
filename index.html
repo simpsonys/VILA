@@ -19,22 +19,15 @@
         </div>
 
         <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px">
-            <div class="preset-bar" id="presetBar" style="display:flex;align-items:center;gap:15px;padding:5px 0;width:fit-content">
-                <div style="display:flex;align-items:center;gap:4px;">
-                    <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="openConfigFolder()" title="Open Config Folder">📂 Config</button>
-                    <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;display:flex;align-items:center;gap:4px" id="openLogBtn" title="Open App Log File">📄 App Log</button>
-                    <button class="btn btn-ghost" style="padding:2px 6px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()" title="Toggle Developer Tools">🛠 DevTools</button>
-                </div>
-                <span class="preset-label" style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase">Preset:</span>
-                <div class="radio-group" id="presetRadios" style="display:flex;align-items:center;gap:12px"></div>
-                <button class="config-btn" onclick="addCustomPreset()" style="margin-left:10px">+ Custom Preset</button>
-                <button class="config-btn" onclick="resetCurrentPreset()" style="margin-left:5px;color:#f59e0b;border-color:#f59e0b">🔄 Reset Preset</button>
-                <button class="config-btn" onclick="deleteCurrentPreset()" style="margin-left:5px;color:#ef4444;border-color:#ef4444">- Delete Preset</button>
-            </div>
         </div>
 
         <div style="display:flex;gap:8px;align-items:center;min-width:280px;justify-content:flex-end">
-            <button class="config-btn" id="updateBtn" onclick="checkForUpdates()" title="Check for updates">🔄 Update</button>
+            <div class="preset-bar" id="presetBar" style="display:flex;align-items:center;gap:8px;padding:5px 0;width:fit-content">
+                <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" id="presetToggleBtn" onclick="togglePresetMenu()" title="Preset Options">
+                    🎛️ Preset: <span id="currentPresetLabel" style="font-weight:700;color:#60dcfa">Default</span> ⏷
+                </button>
+            </div>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" id="devToggleBtn" onclick="toggleDevMenu()" title="Toggle DEV options">🛠 DEV</button>
             <div id="streamingLabel" class="mode-switch-wrap">
                 <button class="mode-btn active" id="modeBtnBatch" onclick="setStreamingMode(false)" title="파일 끝까지 분석 후 결과 표시">
                     <span class="mode-icon">📋</span> Batch
@@ -43,9 +36,30 @@
                     <span class="mode-icon">⚡</span> Stream
                 </button>
             </div>
-            <button class="btn btn-primary" id="refreshBtn" style="display:none" onclick="refreshAnalysis()" title="Reload config and re-analyze">↺ Refresh</button>
-            <button class="btn btn-primary" id="exportBtn" style="display:none" onclick="doExport()">⬇ Export HTML + JSON</button>
+            <button class="btn btn-ghost" id="refreshBtn" style="display:none;padding:4px 10px;font-size:11px;align-items:center;gap:4px" onclick="refreshAnalysis()" title="Reload config and re-analyze">↺ Refresh</button>
+            <button class="btn btn-ghost" id="exportBtn" style="display:none;padding:4px 10px;font-size:11px;align-items:center;gap:4px" onclick="doExport()">⬇ Export Html+JSON</button>
         </div>
+    </div>
+    
+    <!-- Preset Menu Container -->
+    <div id="presetMenu" style="display:none;background:#0f1219;border-bottom:1px solid #1e2433;padding:8px 28px;justify-content:center;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px;border-right:1px solid #1e2433;padding-right:12px">
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="openConfigFolder()" title="Open Config Folder">📂 Preset Config</button>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="addCustomPreset()">➕ Custom</button>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px;color:#f59e0b;border-color:rgba(245, 158, 11, 0.5)" onclick="resetCurrentPreset()">🔄 Reset</button>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px;color:#ef4444;border-color:rgba(239, 68, 68, 0.5)" onclick="deleteCurrentPreset()">🗑️ Delete</button>
+        </div>
+        <div class="mode-switch-wrap" id="presetRadiosWrap" style="margin:0">
+            <!-- Radio buttons will be converted to mode-btn style in JS -->
+        </div>
+    </div>
+
+    <!-- Dev Menu Container -->
+    <div id="devMenu" style="display:none;background:#0f1219;border-bottom:1px solid #1e2433;padding:8px 28px;justify-content:flex-end;gap:8px">
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="showReadmeModal()" title="How to use">📖 README</button>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" id="openLogBtn" title="Open App Log File">📄 App Log</button>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()" title="Toggle Developer Tools">🛠 DevTools</button>
+        <button class="btn btn-ghost" id="updateBtn" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="checkForUpdates()" title="Check for updates">🔄 Update</button>
     </div>
 
     <div class="main">

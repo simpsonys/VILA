@@ -259,7 +259,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
 .mode-btn:hover { color: #94a3b8; background: #161b26; }
 .mode-btn.active { color: #60dcfa; background: linear-gradient(135deg, #1a3a5c, #1e2d5c); }
 .mode-btn .mode-icon { font-size: 12px; }
-.mode-switch-wrap .mode-btn:first-child { border-right: 1px solid #1e2433; }
+.mode-switch-wrap .mode-btn:not(:last-child) { border-right: 1px solid #1e2433; }
 
 /* Error Modal */
 .error-toast { position: fixed; bottom: 20px; right: 20px; z-index: 2000; max-width: 520px; min-width: 340px; background: #1a0a0a; border: 1px solid #7f1d1d; border-radius: 12px; box-shadow: 0 8px 32px rgba(248,113,113,0.15), 0 0 0 1px rgba(127,29,29,0.3); animation: slideUp 0.3s ease-out; overflow: hidden; }
@@ -278,7 +278,7 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 11px
 .error-toast-toggle:hover { color: #f87171; }
 
 /* Preset Bar Styles */
-.preset-bar { display: flex; align-items: center; gap: 15px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #1e2433; width: 100%; }
+.preset-bar { display: flex; align-items: center; gap: 8px; width: 100%; justify-content: center; }
 .preset-label { font-size: 11px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
 .radio-group { display: flex; align-items: center; gap: 12px; }
 .radio-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #94a3b8; cursor: pointer; user-select: none; }
