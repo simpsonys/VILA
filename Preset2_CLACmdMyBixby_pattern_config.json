@@ -1,0 +1,84 @@
+{
+  "start_patterns": [
+    "cmd_from_mockapp"
+  ],
+  "end_patterns": [
+    "GRPC CLOSE OUT"
+  ],
+  "success_patterns": [
+    "DialogText"
+  ],
+  "failure_patterns": [
+    "result_code=fail"
+  ],
+  "clickable_patterns": {
+    "conversationId": {
+      "pattern": "conversationId\\[([^\\]]+)\\]",
+      "url_template1": "https://sumologic.bixbydev.com/stg/conversation/?conversationId={value}",
+      "url_template2": "http://10.91.196.65:5000/explorer/?conversationId={value}",
+      "display_name": "ConversationID",
+	  "PlantUML" : "BixbyClient -> BixbyClient: {value}"
+    },
+    "requestId": {
+      "pattern": "requestId\\[([^\\]]+)\\]",
+      "url_template": null,
+      "display_name": "RequestID",
+  	  "PlantUML" : "BixbyClient -> BixbyClient: {value}"
+    },
+    "capsuleGoal": {
+      "pattern": "setExecutionCapsuleGoal\\(\\d+\\)\\s*>\\s*(.*)",
+      "url_template": null,
+      "display_name": "Capsule Goal",
+	    "PlantUML" : "BixbyClient -> BixbyClient: {value}"
+    }
+  },
+  "utterance_patterns": {
+    "cmd_from_mockapp": {
+      "pattern": "cmd_from_mockapp\\s*[,\\s]\\s*(.*)",
+      "utterance": "{value}",
+	  "PlantUML" : "title {value}"
+    }
+  },
+  "pattern_groups": {
+    "MakeMetaDataParams": {
+      "name": "MakeMetaDataParams",
+      "patterns": [
+        "MakeMetaDataParams(.*)",
+		"GetConfig(.*)"
+      ],
+	  "PlantUML" : "BixbyClient -> BixbyServer: {value}"
+    },
+    "Actions": {
+      "name": "Action",
+      "patterns": [
+		    "PROCESS ACTION URL(.*)",
+        "result_code"
+      ],
+	  "PlantUML" : "BixbyServer -> BixbyClient: {value}"
+    },
+    "setDialogText": {
+      "name": "setDialogText",
+      "patterns": [
+		"setDialogText(.*)"
+      ],
+	  "PlantUML" : "BixbyServer -> BixbyClient: {value}"
+    },
+    "YT": {
+      "name": "YT",
+      "patterns": [
+		"Dispatching deep link event(.*)"
+      ],
+	  "PlantUML" : "BixbyClient -> COBALT: {value}"
+    }
+  },
+  "default_sdb_device": "192.168.250.250:26101",
+  "default_live_log_command": "node mock-sdb.js",
+  "enable_result_judgment": false,
+  "table_columns": [
+    { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId" },
+    { "key": "requestId", "label": "Request ID", "width": "12%" },
+    { "key": "capsuleGoal", "label": "Capsule Goal", "width": "12%" },
+    { "key": "utterance", "label": "Utterance", "width": "28%", "type": "utterance" },
+    { "key": "successLine", "label": "Success Match", "width": "28%", "type": "log" }
+  ]
+}

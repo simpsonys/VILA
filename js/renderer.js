@@ -1951,6 +1951,65 @@ function getAllPatterns(config) {
     }).filter(Boolean);
 }
 
+// ── Sequence Diagram ──
+function generatePlantUMLForEntry(entry) {
+    const lines = entry.allLines || [];
+    const plantItems = [];
+
+    function extractValue(line, match) {
+        if (match && match[1]) return match[1].trim();
+        if (match && match.index !== undefined) return line.substring(match.index).trim();
+        return line.trim();
+    }
+
+    for (const line of lines) {
+        // utterance_patterns
+        for (const [, cfg] of Object.entries(CONFIG.utterance_patterns || {})) {
+            if (!cfg.PlantUML) continue;
+            try {
+                const m = line.match(new RegExp(cfg.pattern));
+                if (m) {
+                    const value = extractValue(line, m);
+                    const isTitle = cfg.PlantUML.trimStart().startsWith('title');
+                    plantItems.push({ text: cfg.PlantUML.replace('{value}', value), isTitle });
+                }
+            } catch {}
+        }
+
+        // clickable_patterns
+        for (const [, cfg] of Object.entries(CONFIG.clickable_patterns || {})) {
+            if (!cfg.PlantUML) continue;
+            try {
+                const m = line.match(new RegExp(cfg.pattern));
+                if (m) {
+                    const value = extractValue(line, m);
+                    plantItems.push({ text: cfg.PlantUML.replace('{value}', value), isTitle: false });
+                }
+            } catch {}
+        }
+
+        // pattern_groups
+        for (const [, grpCfg] of Object.entries(CONFIG.pattern_groups || {})) {
+            if (!grpCfg.PlantUML) continue;
+            for (const p of (grpCfg.patterns || [])) {
+                try {
+                    const m = line.match(new RegExp(p));
+                    if (m) {
+                        const value = extractValue(line, m);
+                        plantItems.push({ text: grpCfg.PlantUML.replace('{value}', value), isTitle: false });
+                        break; // one match per group per line
+                    }
+                } catch {}
+            }
+        }
+    }
+
+    const titles = plantItems.filter(p => p.isTitle).map(p => p.text);
+    const nonTitles = plantItems.filter(p => !p.isTitle).map(p => p.text);
+
+    return ['@startuml', ...titles, ...nonTitles, '@enduml'].join('\n');
+}
+
 async function openDetailFromTable(idx) {
     const e = filteredData[idx];
     if (!e) return;
@@ -2088,6 +2147,78 @@ function mkC(t){if(!t)return esc(t);let r=esc(t);for(const[,c]of Object.entries(
 
     const ver = APP_VERSION ? `[${APP_VERSION}]` : '';
 
+    // ── Sequence Diagram (local SVG renderer, no external requests) ──
+    const pumlText = generatePlantUMLForEntry(e);
+    const seqScript = `const seqPuml=${JSON.stringify(pumlText)};
+let seqOpen=false;
+function toggleSeq(){
+  seqOpen=!seqOpen;
+  const sec=document.getElementById('seqSection');
+  const btn=document.getElementById('seqBtn');
+  if(seqOpen){
+    sec.style.display='block';
+    btn.style.color='#a78bfa';btn.style.borderColor='rgba(167,139,250,0.5)';btn.style.background='linear-gradient(135deg,#1e1640,#1e1e40)';
+    updateSeq();
+    setTimeout(()=>sec.scrollIntoView({behavior:'smooth',block:'start'}),50);
+  }else{sec.style.display='none';btn.style.color='';btn.style.borderColor='';btn.style.background=''}
+}
+function scheduleSeq(){clearTimeout(window._st);window._st=setTimeout(updateSeq,600)}
+function updateSeq(){const txt=document.getElementById('seqPumlTxt').value;document.getElementById('seqSvgWrap').innerHTML=renderSeqSVG(txt)}
+function copySeqPuml(){const t=document.getElementById('seqPumlTxt').value;navigator.clipboard.writeText(t).then(()=>{const b=document.getElementById('seqCopyBtn');const o=b.textContent;b.textContent='\\u2713 Copied!';setTimeout(()=>b.textContent=o,1500)}).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta)})}
+function renderSeqSVG(src){
+  const lines=src.split('\\n').map(l=>l.trim()).filter(l=>l&&l!=='@startuml'&&l!=='@enduml');
+  let title='',pOrd=[],pSet=new Set(),msgs=[];
+  for(const l of lines){
+    if(l.startsWith('title ')){title=l.slice(6).trim();continue}
+    let f,t,lb,dashed=false;
+    // Right arrows: A->B, A->>B, A-->B, A-->>B, A->oB, A->xB
+    const rm=l.match(/^(\\S+)\\s*(-+>>?[ox]?|[ox]?-+>>?[ox]?)\\s+([^:\\s]+)\\s*:\\s*(.*)$/);
+    if(rm){f=rm[1].trim();t=rm[3].trim();lb=rm[4].trim();dashed=rm[2].includes('--')}
+    else{
+      // Left arrows: A<-B, A<<-B, A<--B, A<<--B (swap direction)
+      const lm=l.match(/^(\\S+)\\s*(<<?-+[<]?)\\s+([^:\\s]+)\\s*:\\s*(.*)$/);
+      if(lm){f=lm[3].trim();t=lm[1].trim();lb=lm[4].trim();dashed=lm[2].includes('--')}
+      else{
+        // Old custom format: A -{label}-> B
+        const om=l.match(/^(\\S+)\\s*-(.*)->\\s*(\\S+)$/);
+        if(om){f=om[1].trim();lb=om[2].trim();t=om[3].trim()}
+      }
+    }
+    if(f&&t){if(!pSet.has(f)){pSet.add(f);pOrd.push(f)}if(!pSet.has(t)){pSet.add(t);pOrd.push(t)}msgs.push({f,t,lb:lb||'',dashed})}
+  }
+  if(!pOrd.length)return '<div style="color:#64748b;font-size:12px;padding:16px;text-align:center">No sequence arrows found in PlantUML source.</div>';
+  const ev=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const PAD=40,PW=150,PH=34,GAP=220,MH=54,FONT=11,MAX=52;
+  const N=pOrd.length,W=PAD*2+(N-1)*GAP+PW,tH=title?40:0,H=tH+PAD/2+PH+msgs.length*MH+PH+PAD/2;
+  const cx={};pOrd.forEach((p,i)=>{cx[p]=PAD+PW/2+i*GAP});
+  let s='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" style="display:block;min-width:'+W+'px">';
+  s+='<rect width="'+W+'" height="'+H+'" fill="#0a0d14"/>';
+  if(title)s+='<text x="'+(W/2)+'" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#e2e8f0" font-family="Segoe UI,system-ui,sans-serif">'+ev(title)+'</text>';
+  const topY=tH+PAD/2;
+  pOrd.forEach(p=>{const x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+topY+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(topY+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});
+  const llY1=topY+PH,llY2=llY1+msgs.length*MH;
+  pOrd.forEach(p=>{s+='<line x1="'+cx[p]+'" y1="'+llY1+'" x2="'+cx[p]+'" y2="'+llY2+'" stroke="#1e2433" stroke-width="1.5" stroke-dasharray="6,4"/>'});
+  msgs.forEach((msg,i)=>{
+    const y=llY1+(i+0.65)*MH,x1=cx[msg.f]!=null?cx[msg.f]:PAD+PW/2,x2=cx[msg.t]!=null?cx[msg.t]:PAD+PW/2;
+    const lb=msg.lb.length>MAX?msg.lb.slice(0,MAX)+'\\u2026':msg.lb;
+    const clr=msg.dashed?'#7dd3a8':'#60dcfa';
+    const da=msg.dashed?' stroke-dasharray="6,4"':'';
+    if(msg.f===msg.t){
+      const rx=x1+58;
+      s+='<path d="M'+x1+','+(y-14)+' C'+rx+','+(y-14)+' '+rx+','+(y+14)+' '+x1+','+(y+14)+'" fill="none" stroke="#a78bfa" stroke-width="1.5"'+da+'/>';
+      s+='<polygon points="'+x1+','+(y+14)+' '+(x1-6)+','+(y+6)+' '+(x1+6)+','+(y+6)+'" fill="#a78bfa"/>';
+      s+='<text x="'+(rx+6)+'" y="'+(y+4)+'" font-size="'+FONT+'" fill="#a78bfa" font-family="Consolas,monospace" dominant-baseline="middle">'+ev(lb)+'</text>';
+    }else{
+      const d=x2>x1?1:-1;
+      s+='<line x1="'+x1+'" y1="'+y+'" x2="'+x2+'" y2="'+y+'" stroke="'+clr+'" stroke-width="1.5"'+da+'/>';
+      s+='<polygon points="'+x2+','+y+' '+(x2-d*10)+','+(y-5)+' '+(x2-d*10)+','+(y+5)+'" fill="'+clr+'"/>';
+      s+='<text x="'+((x1+x2)/2)+'" y="'+(y-7)+'" text-anchor="middle" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">'+ev(lb)+'</text>';
+    }
+  });
+  pOrd.forEach(p=>{const x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+llY2+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(llY2+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});
+  s+='</svg>';return s;
+}`;
+
     return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Utterance Detail #${utteranceIndex} - ${escH(e.utterance)}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
@@ -2120,7 +2251,8 @@ body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-seri
 <div class="hdr">
   <div><div class="title">Utterance Detail #${utteranceIndex}</div><div class="sub">${escH(e.utterance)} ${ver}</div></div>
   <div style="display:flex;gap:8px">
-    <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">📋 Copy All Logs</button>
+    <button class="btn-c" id="seqBtn" onclick="toggleSeq()" style="border-color:rgba(167,139,250,0.3)">&#128202; Sequence</button>
+    <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">&#128203; Copy All Logs</button>
   </div>
 </div>
 <div class="content">
@@ -2131,9 +2263,19 @@ body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-seri
   <div class="se">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div class="st" style="color:#94a3b8;margin:0">All Valid Logs (${allLogsData.length} lines)</div>
-      <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">📋 Copy All</button>
+      <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">&#128203; Copy All</button>
     </div>
     <div class="log-all" id="allLogs"></div>
+  </div>
+  <div id="seqSection" style="display:none;margin-top:4px">
+    <div class="se" style="margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="st" style="color:#a78bfa;margin:0">&#128202; Sequence Diagram</div>
+        <button class="btn-c" id="seqCopyBtn" onclick="copySeqPuml()">&#128203; Copy PlantUML</button>
+      </div>
+      <textarea id="seqPumlTxt" spellcheck="false" oninput="scheduleSeq()" style="width:100%;height:160px;background:#0a0d14;color:#a8c4e0;font-family:'Consolas',monospace;font-size:11px;line-height:1.6;border:1px solid #1e2433;border-radius:6px;padding:10px 14px;outline:none;resize:vertical;box-sizing:border-box">${escH(pumlText)}</textarea>
+      <div id="seqSvgWrap" style="margin-top:12px;overflow-x:auto;background:#0a0d14;border:1px solid #1e2433;border-radius:6px;padding:16px"></div>
+    </div>
   </div>
 </div>
 <script>
@@ -2148,6 +2290,7 @@ if(succLine){const el=document.getElementById('succBox');if(el)el.innerHTML=mkC(
 if(failLines.length){const el=document.getElementById('failBox');if(el)el.innerHTML=failLines.map(l=>mkC(l)).join('<br>')}
 pgData.forEach((lines,i)=>{const el=document.getElementById('grp'+i);if(el)el.innerHTML=lines.map(l=>mkC(l)).join('<br>')});
 document.getElementById('allLogs').innerHTML=logsData.map(d=>'<span style="color:#4a5568">L'+d.ln+'</span>  '+mkC(d.text)).join('\\n');
+${seqScript}
 </script></body></html>`;
 }
 
