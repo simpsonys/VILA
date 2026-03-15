@@ -171,8 +171,8 @@ sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
             
             <!-- Live Log Viewer -->
             <div class="raw-log-viewer" id="rawLogViewer" style="display:none;position:relative;">
-                <div style="position:absolute;top:10px;right:10px;z-index:10;display:flex;gap:8px">
-                    <input class="search-input" id="rawLogSearchBox" placeholder="Search in Live Log..." oninput="searchRawLog()" style="width:200px;padding:4px 10px;font-size:12px">
+                <div style="position:sticky;top:10px;z-index:10;display:flex;justify-content:flex-end;padding-right:10px;margin-bottom:-28px;pointer-events:none;">
+                    <input class="search-input" id="rawLogSearchBox" placeholder="Search in Live Log..." oninput="searchRawLog()" style="width:200px;padding:4px 10px;font-size:12px;pointer-events:auto;background:#0f1117;box-shadow:0 2px 8px rgba(0,0,0,0.5);">
                 </div>
                 <pre id="rawLogContent"></pre>
             </div>

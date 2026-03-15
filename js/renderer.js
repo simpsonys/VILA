@@ -1536,6 +1536,9 @@ function renderTable() {
             const vb = (b[sortKey] || '').toString().toLowerCase();
             return sortState[sortKey] === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
         });
+    } else if (isLiveStreaming) {
+        // Default to showing the most recent test items at the top in Live mode
+        rows = [...rows].reverse();
     }
 
     filteredData = rows;
@@ -1624,6 +1627,16 @@ function renderRawLogViewer() {
     let html = '';
     const term = rawLogSearchTerm;
     
+    let utteranceRegexes = [];
+    if (CONFIG && CONFIG.utterance_patterns) {
+        for (const [, cfg] of Object.entries(CONFIG.utterance_patterns)) {
+            try { utteranceRegexes.push(new RegExp(cfg.pattern)); } catch(e){}
+        }
+    }
+    if (utteranceRegexes.length === 0 && CONFIG && CONFIG.start_patterns) {
+        try { utteranceRegexes.push(new RegExp(CONFIG.start_patterns.join('|'))); } catch(e){}
+    }
+
     for (let i = 0; i < rawLogLines.length; i++) {
         const line = rawLogLines[i];
         if (!line) continue;
@@ -1632,6 +1645,37 @@ function renderRawLogViewer() {
         // makeClickable handles escaping
         let displayLine = makeClickable(line);
         
+        // Bold yellow highlight for utterance ONLY
+        let utteranceStr = null;
+        for (const re of utteranceRegexes) {
+            const m = line.match(re);
+            if (m) {
+                if (m[1]) {
+                    utteranceStr = m[1];
+                } else {
+                    // Fallback extraction for start_patterns without capture group
+                    const commaIdx = line.indexOf(',');
+                    if (commaIdx > -1) {
+                        utteranceStr = line.substring(commaIdx + 1).trim();
+                    } else {
+                        const bMatch = line.match(/\[([^\]]+)\]/);
+                        if (bMatch) utteranceStr = bMatch[1];
+                    }
+                }
+                break;
+            }
+        }
+        if (utteranceStr && utteranceStr.trim().length > 0) {
+            const escapedUtt = esc(utteranceStr);
+            // Replace the last occurrence to avoid matching log prefixes
+            const replaceIdx = displayLine.lastIndexOf(escapedUtt);
+            if (replaceIdx !== -1) {
+                displayLine = displayLine.substring(0, replaceIdx) + 
+                              `<span style="color:#fbbf24;font-weight:bold">${escapedUtt}</span>` + 
+                              displayLine.substring(replaceIdx + escapedUtt.length);
+            }
+        }
+
         if (term) {
             // Very simple highlight: replace text outside of tags
             const regex = new RegExp(`(?![^<]+>)(${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
