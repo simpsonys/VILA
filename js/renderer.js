@@ -2001,6 +2001,15 @@ function generatePlantUMLForEntry(entry) {
     }
     // Normalize pattern entry: accepts string or {pattern, PlantUML?} object
     function patStr(p) { return typeof p === 'string' ? p : (p && p.pattern) || ''; }
+    // Apply template substitution + line number prefix at start of label (after last ': ')
+    function applyPuml(tmpl, value, lineNum) {
+        const isTitle = tmpl.trimStart().startsWith('title');
+        if (isTitle || !tmpl.includes('{value}')) return tmpl.replace('{value}', value);
+        const colonIdx = tmpl.lastIndexOf(': ');
+        const labelTmpl = colonIdx >= 0 ? tmpl.substring(colonIdx + 2) : tmpl;
+        const labelStr = `L${lineNum}: ${labelTmpl.replace('{value}', value)}`;
+        return colonIdx >= 0 ? tmpl.substring(0, colonIdx + 2) + labelStr : labelStr;
+    }
 
     for (let li = 0; li < lines.length; li++) {
         const line = lines[li];
@@ -2015,8 +2024,7 @@ function generatePlantUMLForEntry(entry) {
                     const value = extractValue(line, m);
                     for (const tmpl of pumlTemplates(cfg.PlantUML)) {
                         const isTitle = tmpl.trimStart().startsWith('title');
-                        const pfx = isTitle ? '' : `L${lineNum}: `;
-                        plantItems.push({ text: tmpl.replace('{value}', pfx + value), isTitle });
+                        plantItems.push({ text: applyPuml(tmpl, value, lineNum), isTitle });
                     }
                 }
             } catch {}
@@ -2030,7 +2038,7 @@ function generatePlantUMLForEntry(entry) {
                 if (m) {
                     const value = extractValue(line, m);
                     for (const tmpl of pumlTemplates(cfg.PlantUML)) {
-                        plantItems.push({ text: tmpl.replace('{value}', `L${lineNum}: ${value}`), isTitle: false });
+                        plantItems.push({ text: applyPuml(tmpl, value, lineNum), isTitle: false });
                     }
                 }
             } catch {}
@@ -2048,7 +2056,7 @@ function generatePlantUMLForEntry(entry) {
                     if (m) {
                         const value = extractValue(line, m);
                         for (const tmpl of pumlTemplates(entryPuml)) {
-                            plantItems.push({ text: tmpl.replace('{value}', `L${lineNum}: ${value}`), isTitle: false });
+                            plantItems.push({ text: applyPuml(tmpl, value, lineNum), isTitle: false });
                         }
                         break; // one match per group per line
                     }
@@ -2933,10 +2941,11 @@ function showT(msg){var d=document.createElement('div');d.style='position:fixed;
 function genPuml(e){var lines=e.allLines||[],items=[];function exV(ln,m){if(m&&m[1])return m[1].trim();if(m&&m.index!==undefined)return ln.substring(m.index).trim();return ln.trim()}
 function pumlT(puml){if(!puml)return[];return Array.isArray(puml)?puml:[puml]}
 function patS(p){return typeof p==='string'?p:(p&&p.pattern)||''}
+function apP(tmpl,val,ln){var isT=tmpl.trimLeft().indexOf('title')===0;if(isT||tmpl.indexOf('{value}')<0)return tmpl.replace('{value}',val);var ci=tmpl.lastIndexOf(': ');var lbl=(ci>=0?tmpl.substring(ci+2):tmpl).replace('{value}',val);var pfx='L'+ln+': '+lbl;return ci>=0?tmpl.substring(0,ci+2)+pfx:pfx}
 for(var i=0;i<lines.length;i++){var line=lines[i];var lineNum=(e.lineNumbers&&e.lineNumbers[i])?e.lineNumbers[i]:(i+1);
-if(C&&C.utterance_patterns){for(var uk in C.utterance_patterns){var uc=C.utterance_patterns[uk];if(!uc.PlantUML)continue;try{var um=line.match(new RegExp(uc.pattern));if(um){var uv=exV(line,um);pumlT(uc.PlantUML).forEach(function(tmpl){var isT=tmpl.trimLeft().indexOf('title')===0;items.push({text:tmpl.replace('{value}',(isT?'':'L'+lineNum+': ')+uv),isTitle:isT})})}}catch(x){}}}
-if(C&&C.clickable_patterns){for(var ck in C.clickable_patterns){var cc=C.clickable_patterns[ck];if(!cc.PlantUML)continue;try{var cm2=line.match(new RegExp(cc.pattern));if(cm2){var cv=exV(line,cm2);pumlT(cc.PlantUML).forEach(function(tmpl){items.push({text:tmpl.replace('{value}','L'+lineNum+': '+cv),isTitle:false})})}}catch(x){}}}
-if(C&&C.pattern_groups){for(var gk in C.pattern_groups){var grp=C.pattern_groups[gk];for(var pi=0;pi<(grp.patterns||[]).length;pi++){var pEnt=grp.patterns[pi];var ps=patS(pEnt);var ePuml=(typeof pEnt==='object'&&pEnt.PlantUML)?pEnt.PlantUML:grp.PlantUML;if(!ps||!ePuml)continue;try{var gm=line.match(new RegExp(ps));if(gm){var gv=exV(line,gm);pumlT(ePuml).forEach(function(tmpl){items.push({text:tmpl.replace('{value}','L'+lineNum+': '+gv),isTitle:false})});break}}catch(x){}}}}
+if(C&&C.utterance_patterns){for(var uk in C.utterance_patterns){var uc=C.utterance_patterns[uk];if(!uc.PlantUML)continue;try{var um=line.match(new RegExp(uc.pattern));if(um){var uv=exV(line,um);pumlT(uc.PlantUML).forEach(function(tmpl){var isT=tmpl.trimLeft().indexOf('title')===0;items.push({text:apP(tmpl,uv,lineNum),isTitle:isT})})}}catch(x){}}}
+if(C&&C.clickable_patterns){for(var ck in C.clickable_patterns){var cc=C.clickable_patterns[ck];if(!cc.PlantUML)continue;try{var cm2=line.match(new RegExp(cc.pattern));if(cm2){var cv=exV(line,cm2);pumlT(cc.PlantUML).forEach(function(tmpl){items.push({text:apP(tmpl,cv,lineNum),isTitle:false})})}}catch(x){}}}
+if(C&&C.pattern_groups){for(var gk in C.pattern_groups){var grp=C.pattern_groups[gk];for(var pi=0;pi<(grp.patterns||[]).length;pi++){var pEnt=grp.patterns[pi];var ps=patS(pEnt);var ePuml=(typeof pEnt==='object'&&pEnt.PlantUML)?pEnt.PlantUML:grp.PlantUML;if(!ps||!ePuml)continue;try{var gm=line.match(new RegExp(ps));if(gm){var gv=exV(line,gm);pumlT(ePuml).forEach(function(tmpl){items.push({text:apP(tmpl,gv,lineNum),isTitle:false})});break}}catch(x){}}}}
 }
 var titles=items.filter(function(p){return p.isTitle}).map(function(p){return p.text});
 var rest=items.filter(function(p){return!p.isTitle}).map(function(p){return p.text});
