@@ -2231,6 +2231,11 @@ function renderSeqSVG(src){
   let title='',pOrd=[],pSet=new Set(),msgs=[];
   for(const l of lines){
     if(l.startsWith('title ')){title=l.slice(6).trim();continue}
+    // Separator: == text ==
+    const sm=l.match(/^==\\s*(.*?)\\s*==$/);
+    if(sm){msgs.push({type:'sep',lb:sm[1].trim(),dashed:false});continue}
+    // Hidden arrow: -[hidden]- registers participants but is not drawn
+    if(/-\[hidden\]/i.test(l)){const hm=l.match(/^(\\S+)\\s+.*?\\s+(\\S+)\\s*$/);if(hm){const hf=hm[1],ht=hm[2];if(!pSet.has(hf)){pSet.add(hf);pOrd.push(hf)}if(!pSet.has(ht)){pSet.add(ht);pOrd.push(ht)}}continue}
     // Note lines: "note right: text", "note left: text", "note over P: text", "note over P,Q: text"
     const nm=l.match(/^note\\s+(right|left|over)\\s*([^:]*)\\s*:\\s*(.*)$/i);
     if(nm){
@@ -2257,14 +2262,14 @@ function renderSeqSVG(src){
   }
   if(!pOrd.length)return '<div style="color:#64748b;font-size:12px;padding:16px;text-align:center">No sequence arrows found in PlantUML source.</div>';
   const ev=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const PAD=40,PW=150,PH=34,BASE_MH=54,FONT=11,NOTE_MAX=80,LH=13,FK=8;
+  const PAD=40,PW=150,PH=34,BASE_MH=54,SEP_H=30,FONT=11,NOTE_MAX=80,LH=13,FK=8;
   const wL=(lb,max)=>{if(!lb||lb.length<=max)return[lb||''];const r=[];let s=lb;while(s.length>max){r.push(s.slice(0,max));s=s.slice(max);}r.push(s);return r};
-  // Arrow labels: no wrapping (show full text). Notes: wrap at NOTE_MAX chars.
+  // Arrow labels: no wrapping. Notes: wrap at NOTE_MAX. Separators: single label.
   const mLines=msgs.map(m=>m.type==='note'?wL(m.lb,NOTE_MAX):[m.lb||'']);
-  const rH=mLines.map(ls=>BASE_MH+(ls.length-1)*LH);
+  const rH=mLines.map((ls,i)=>msgs[i].type==='sep'?SEP_H:BASE_MH+(ls.length-1)*LH);
   const totMH=rH.reduce((a,b)=>a+b,0);
-  // GAP based on arrow labels only (notes don't affect participant spacing)
-  const arrowLns=msgs.flatMap((m,i)=>m.type==='note'?[]:mLines[i]);
+  // GAP based on arrow labels only (notes/separators don't affect participant spacing)
+  const arrowLns=msgs.flatMap((m,i)=>(m.type==='note'||m.type==='sep')?[]:mLines[i]);
   const maxChunk=Math.max(10,...(arrowLns.length?arrowLns.map(l=>l.length):[10]));
   const GAP=Math.max(220,Math.round(maxChunk*6.5)+60);
   const N=pOrd.length;
@@ -2315,14 +2320,19 @@ function renderSeqSVG(src){
   msgs.forEach((msg,i)=>{
     const rh=rH[i],wls=mLines[i],tl=wls.length;
     const yArr=cumY+rh*0.5;cumY+=rh;
-    if(msg.type==='note'){
-      // Draw note box with folded corner
+    if(msg.type==='sep'){
+      // Separator: horizontal dashed line with centered label
+      const sy=yArr;
+      s+='<line x1="'+PAD+'" y1="'+sy+'" x2="'+(W-PAD)+'" y2="'+sy+'" stroke="#2a3a5c" stroke-width="1.5" stroke-dasharray="4,2"/>';
+      if(msg.lb){const tw=Math.round(msg.lb.length*7)+20;s+='<rect x="'+(W/2-tw/2-4)+'" y="'+(sy-9)+'" width="'+(tw+8)+'" height="18" fill="#0a0d14"/>';s+='<text x="'+(W/2)+'" y="'+(sy+4)+'" text-anchor="middle" font-size="'+FONT+'" fill="#94a3b8" font-family="Segoe UI,system-ui,sans-serif">'+ev(msg.lb)+'</text>'}
+    }else if(msg.type==='note'){
+      // Draw note box with folded corner, left-aligned white text
       const nx=msg._nx,NW=msg._nw,NH=msg._nh,ny=yArr-NH/2;
-      const txMid=nx+NW/2,ty0=ny+14;
+      const tx=nx+12,ty0=ny+14;
       s+='<polygon points="'+nx+','+ny+' '+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW)+','+(ny+NH)+' '+nx+','+(ny+NH)+'" fill="#1a2010" stroke="#fbbf24" stroke-width="1.5"/>';
       s+='<polygon points="'+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW-FK)+','+(ny+FK)+'" fill="#4a3800" stroke="#fbbf24" stroke-width="1"/>';
-      s+='<text text-anchor="middle" font-size="'+FONT+'" fill="#fbbf24" font-family="Consolas,monospace">';
-      wls.forEach((ln,li)=>{s+='<tspan x="'+txMid+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});
+      s+='<text text-anchor="start" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';
+      wls.forEach((ln,li)=>{s+='<tspan x="'+tx+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});
       s+='</text>';
     }else{
       const x1=cx[msg.f]!=null?cx[msg.f]:PAD+PW/2,x2=cx[msg.t]!=null?cx[msg.t]:PAD+PW/2;
@@ -2950,16 +2960,15 @@ if(C&&C.pattern_groups){for(var gk in C.pattern_groups){var grp=C.pattern_groups
 var titles=items.filter(function(p){return p.isTitle}).map(function(p){return p.text});
 var rest=items.filter(function(p){return!p.isTitle}).map(function(p){return p.text});
 return['@startuml'].concat(titles).concat(rest).concat(['@enduml']).join('\\n')}
-function rSeqSVG(src){var lines=src.split('\\n').map(function(l){return l.trim()}).filter(function(l){return l&&l!=='@startuml'&&l!=='@enduml'});var title='',pOrd=[],pSet={},msgs=[];for(var i=0;i<lines.length;i++){var l=lines[i];if(l.indexOf('title ')===0){title=l.slice(6).trim();continue}var nm=l.match(/^note\s+(right|left|over)\s*([^:]*)\s*:\s*(.*)$/i);if(nm){var nPos=nm[1].toLowerCase();var nParts=nm[2].trim()?nm[2].split(',').map(function(p){return p.trim()}).filter(Boolean):[];msgs.push({type:'note',pos:nPos,parts:nParts,lb:nm[3].trim(),dashed:false});continue}var f,t,lb,dashed=false;var rm=l.match(/^(\S+)\s*(-+>>?[ox]?|[ox]?-+>>?[ox]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(rm){f=rm[1].trim();t=rm[3].trim();lb=rm[4].trim();dashed=rm[2].indexOf('--')>=0}else{var lm=l.match(/^(\S+)\s*(<<?-+[<]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(lm){f=lm[3].trim();t=lm[1].trim();lb=lm[4].trim();dashed=lm[2].indexOf('--')>=0}else{var om=l.match(/^(\S+)\s*-(.*)->\s*(\S+)$/);if(om){f=om[1].trim();lb=om[2].trim();t=om[3].trim()}}}if(f&&t){if(!pSet[f]){pSet[f]=1;pOrd.push(f)}if(!pSet[t]){pSet[t]=1;pOrd.push(t)}msgs.push({f:f,t:t,lb:lb||'',dashed:dashed})}}
+function rSeqSVG(src){var lines=src.split('\\n').map(function(l){return l.trim()}).filter(function(l){return l&&l!=='@startuml'&&l!=='@enduml'});var title='',pOrd=[],pSet={},msgs=[];for(var i=0;i<lines.length;i++){var l=lines[i];if(l.indexOf('title ')===0){title=l.slice(6).trim();continue}var sm=l.match(/^==\s*(.*?)\s*==$/);if(sm){msgs.push({type:'sep',lb:sm[1].trim(),dashed:false});continue}if(/-\[hidden\]/i.test(l)){var hm=l.match(/^(\S+)\s+.*?\s+(\S+)\s*$/);if(hm){var hf=hm[1],ht=hm[2];if(!pSet[hf]){pSet[hf]=1;pOrd.push(hf)}if(!pSet[ht]){pSet[ht]=1;pOrd.push(ht)}}continue}var nm=l.match(/^note\s+(right|left|over)\s*([^:]*)\s*:\s*(.*)$/i);if(nm){var nPos=nm[1].toLowerCase();var nParts=nm[2].trim()?nm[2].split(',').map(function(p){return p.trim()}).filter(Boolean):[];msgs.push({type:'note',pos:nPos,parts:nParts,lb:nm[3].trim(),dashed:false});continue}var f,t,lb,dashed=false;var rm=l.match(/^(\S+)\s*(-+>>?[ox]?|[ox]?-+>>?[ox]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(rm){f=rm[1].trim();t=rm[3].trim();lb=rm[4].trim();dashed=rm[2].indexOf('--')>=0}else{var lm=l.match(/^(\S+)\s*(<<?-+[<]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(lm){f=lm[3].trim();t=lm[1].trim();lb=lm[4].trim();dashed=lm[2].indexOf('--')>=0}else{var om=l.match(/^(\S+)\s*-(.*)->\s*(\S+)$/);if(om){f=om[1].trim();lb=om[2].trim();t=om[3].trim()}}}if(f&&t){if(!pSet[f]){pSet[f]=1;pOrd.push(f)}if(!pSet[t]){pSet[t]=1;pOrd.push(t)}msgs.push({f:f,t:t,lb:lb||'',dashed:dashed})}}
 if(!pOrd.length)return'<div style="color:#64748b;font-size:12px;padding:16px;text-align:center">No sequence arrows found.</div>';
 function ev(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
-var PAD=40,PW=150,PH=34,BASE_MH=54,FONT=11,NOTE_MAX=80,LH=13,FK=8;
+var PAD=40,PW=150,PH=34,BASE_MH=54,SEP_H=30,FONT=11,NOTE_MAX=80,LH=13,FK=8;
 function wL(lb,max){if(!lb||lb.length<=max)return[lb||''];var r=[],ws=lb;while(ws.length>max){r.push(ws.slice(0,max));ws=ws.slice(max);}r.push(ws);return r}
-// Arrow labels: no wrapping (show full text). Notes: wrap at NOTE_MAX chars.
 var mLines=msgs.map(function(m){return m.type==='note'?wL(m.lb,NOTE_MAX):[m.lb||'']});
-var rH=mLines.map(function(ls){return BASE_MH+(ls.length-1)*LH});
+var rH=mLines.map(function(ls,i){return msgs[i].type==='sep'?SEP_H:BASE_MH+(ls.length-1)*LH});
 var totMH=rH.reduce(function(a,b){return a+b},0);
-var arrowLns=[];msgs.forEach(function(m,i){if(m.type!=='note')mLines[i].forEach(function(ln){arrowLns.push(ln)})});
+var arrowLns=[];msgs.forEach(function(m,i){if(m.type!=='note'&&m.type!=='sep')mLines[i].forEach(function(ln){arrowLns.push(ln)})});
 var maxChunk=Math.max(10,arrowLns.length?Math.max.apply(null,arrowLns.map(function(l){return l.length})):10);
 var GAP=Math.max(220,Math.round(maxChunk*6.5)+60);
 var N=pOrd.length;var cx={};pOrd.forEach(function(p,i){cx[p]=PAD+PW/2+i*GAP});
@@ -2969,7 +2978,7 @@ if(xShift>0){pOrd.forEach(function(p){cx[p]+=xShift});msgs.forEach(function(msg)
 var baseW=PAD*2+(N-1)*GAP+PW+xShift;var extraW=0;msgs.forEach(function(msg){if(msg.type==='note')extraW=Math.max(extraW,msg._nx+msg._nw-(baseW-PAD))});
 var W=baseW+Math.max(0,extraW);var tH=title?40:0,H=tH+PAD/2+PH+totMH+PH+PAD/2;
 var s='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" style="display:block;min-width:'+W+'px">';s+='<rect width="'+W+'" height="'+H+'" fill="#0a0d14"/>';if(title)s+='<text x="'+(W/2)+'" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#e2e8f0" font-family="Segoe UI,system-ui,sans-serif">'+ev(title)+'</text>';var topY=tH+PAD/2;pOrd.forEach(function(p){var x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+topY+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(topY+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});var llY1=topY+PH,llY2=llY1+totMH;pOrd.forEach(function(p){s+='<line x1="'+cx[p]+'" y1="'+llY1+'" x2="'+cx[p]+'" y2="'+llY2+'" stroke="#1e2433" stroke-width="1.5" stroke-dasharray="6,4"/>'});
-var cumY=llY1;msgs.forEach(function(msg,i){var rh=rH[i],wls=mLines[i],tl=wls.length;var yArr=cumY+rh*0.5;cumY+=rh;if(msg.type==='note'){var nx=msg._nx,NW=msg._nw,NH=msg._nh,ny=yArr-NH/2;var txMid=nx+NW/2,ty0n=ny+14;s+='<polygon points="'+nx+','+ny+' '+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW)+','+(ny+NH)+' '+nx+','+(ny+NH)+'" fill="#1a2010" stroke="#fbbf24" stroke-width="1.5"/>';s+='<polygon points="'+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW-FK)+','+(ny+FK)+'" fill="#4a3800" stroke="#fbbf24" stroke-width="1"/>';s+='<text text-anchor="middle" font-size="'+FONT+'" fill="#fbbf24" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+txMid+'" y="'+(ty0n+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}else{var x1=cx[msg.f]!=null?cx[msg.f]:PAD+PW/2,x2=cx[msg.t]!=null?cx[msg.t]:PAD+PW/2;var clr=msg.dashed?'#7dd3a8':'#60dcfa';var da=msg.dashed?' stroke-dasharray="6,4"':'';if(msg.f===msg.t){var rx=x1+58;s+='<path d="M'+x1+','+(yArr-14)+' C'+rx+','+(yArr-14)+' '+rx+','+(yArr+14)+' '+x1+','+(yArr+14)+'" fill="none" stroke="#a78bfa" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x1+','+(yArr+14)+' '+(x1-6)+','+(yArr+6)+' '+(x1+6)+','+(yArr+6)+'" fill="#a78bfa"/>';var ty0s=yArr-(tl-1)*LH/2;s+='<text font-size="'+FONT+'" fill="#a78bfa" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+(rx+6)+'" y="'+(ty0s+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}else{var d=x2>x1?1:-1;s+='<line x1="'+x1+'" y1="'+yArr+'" x2="'+x2+'" y2="'+yArr+'" stroke="'+clr+'" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x2+','+yArr+' '+(x2-d*10)+','+(yArr-5)+' '+(x2-d*10)+','+(yArr+5)+'" fill="'+clr+'"/>';var midX=(x1+x2)/2,ty0=yArr-tl*LH;s+='<text text-anchor="middle" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+midX+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}}});
+var cumY=llY1;msgs.forEach(function(msg,i){var rh=rH[i],wls=mLines[i],tl=wls.length;var yArr=cumY+rh*0.5;cumY+=rh;if(msg.type==='sep'){var sy=yArr;s+='<line x1="'+PAD+'" y1="'+sy+'" x2="'+(W-PAD)+'" y2="'+sy+'" stroke="#2a3a5c" stroke-width="1.5" stroke-dasharray="4,2"/>';if(msg.lb){var tw=Math.round(msg.lb.length*7)+20;s+='<rect x="'+(W/2-tw/2-4)+'" y="'+(sy-9)+'" width="'+(tw+8)+'" height="18" fill="#0a0d14"/>';s+='<text x="'+(W/2)+'" y="'+(sy+4)+'" text-anchor="middle" font-size="'+FONT+'" fill="#94a3b8" font-family="Segoe UI,system-ui,sans-serif">'+ev(msg.lb)+'</text>'}}else if(msg.type==='note'){var nx=msg._nx,NW=msg._nw,NH=msg._nh,ny=yArr-NH/2;var tx=nx+12,ty0n=ny+14;s+='<polygon points="'+nx+','+ny+' '+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW)+','+(ny+NH)+' '+nx+','+(ny+NH)+'" fill="#1a2010" stroke="#fbbf24" stroke-width="1.5"/>';s+='<polygon points="'+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW-FK)+','+(ny+FK)+'" fill="#4a3800" stroke="#fbbf24" stroke-width="1"/>';s+='<text text-anchor="start" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+tx+'" y="'+(ty0n+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}else{var x1=cx[msg.f]!=null?cx[msg.f]:PAD+PW/2,x2=cx[msg.t]!=null?cx[msg.t]:PAD+PW/2;var clr=msg.dashed?'#7dd3a8':'#60dcfa';var da=msg.dashed?' stroke-dasharray="6,4"':'';if(msg.f===msg.t){var rx=x1+58;s+='<path d="M'+x1+','+(yArr-14)+' C'+rx+','+(yArr-14)+' '+rx+','+(yArr+14)+' '+x1+','+(yArr+14)+'" fill="none" stroke="#a78bfa" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x1+','+(yArr+14)+' '+(x1-6)+','+(yArr+6)+' '+(x1+6)+','+(yArr+6)+'" fill="#a78bfa"/>';var ty0s=yArr-(tl-1)*LH/2;s+='<text font-size="'+FONT+'" fill="#a78bfa" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+(rx+6)+'" y="'+(ty0s+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}else{var d=x2>x1?1:-1;s+='<line x1="'+x1+'" y1="'+yArr+'" x2="'+x2+'" y2="'+yArr+'" stroke="'+clr+'" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x2+','+yArr+' '+(x2-d*10)+','+(yArr-5)+' '+(x2-d*10)+','+(yArr+5)+'" fill="'+clr+'"/>';var midX=(x1+x2)/2,ty0=yArr-tl*LH;s+='<text text-anchor="middle" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+midX+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}}});
 pOrd.forEach(function(p){var x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+llY2+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(llY2+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});s+='</svg>';return s}
 var _crData=null;function initCR(e,th){e.preventDefault();_crData={th:th,x:e.clientX,w:th.offsetWidth};document.addEventListener('mousemove',doCR);document.addEventListener('mouseup',stopCR)}
 function doCR(e){if(!_crData)return;var w=Math.max(60,_crData.w+e.clientX-_crData.x);_crData.th.style.width=w+'px';_crData.th.style.minWidth=w+'px'}
