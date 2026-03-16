@@ -25,6 +25,7 @@ let currentDetailData = null; // holds utterance data if this is a detail window
 let streamingMode = true; // streaming analysis mode (false = wait until complete, true = show results in real-time)
 let currentConfigFileName = null; // currently active preset config filename
 let isLiveStreaming = false;
+let liveViewMode = 'table'; // 'table' or 'sequence'
 let screenshotSavePath = null;
 let tablePageSize = 50; // rows shown in main results table (50/100/150/Infinity=ALL)
 
@@ -864,8 +865,13 @@ function stripLogPrefix(line, patterns) {
     if (!line) return line;
     if (patterns) {
         for (const p of patterns) {
-            const idx = line.indexOf(p);
-            if (idx >= 0) return line.substring(idx).trim();
+            try {
+                const m = new RegExp(p).exec(line);
+                if (m) return line.substring(m.index).trim();
+            } catch {
+                const idx = line.indexOf(p);
+                if (idx >= 0) return line.substring(idx).trim();
+            }
         }
     }
     return stripTs(line);
@@ -1175,8 +1181,8 @@ function parseBlock(lines, lineNumbers = []) {
 
     let hasS = false, hasF = false;
     for (const l of lines) {
-        for (const sp of (CONFIG.success_patterns || [])) if (l.includes(sp)) { hasS = true; e.successLine = l; }
-        if (CONFIG.failure_patterns) for (const fp of CONFIG.failure_patterns) if (l.includes(fp)) { hasF = true; e.failLines.push(l); }
+        for (const sp of (CONFIG.success_patterns || [])) { try { if (new RegExp(sp).test(l)) { hasS = true; e.successLine = l; } } catch { if (l.includes(sp)) { hasS = true; e.successLine = l; } } }
+        if (CONFIG.failure_patterns) for (const fp of CONFIG.failure_patterns) { try { if (new RegExp(fp).test(l)) { hasF = true; e.failLines.push(l); } } catch { if (l.includes(fp)) { hasF = true; e.failLines.push(l); } } }
     }
 
     if (CONFIG && CONFIG.enable_result_judgment === false) {
@@ -1269,7 +1275,7 @@ function updateProgress(processed, total, found, matched) {
     document.getElementById('progMatched').textContent = matched;
     if (streamingMode) {
         clearTimeout(window._streamRenderTimer);
-        window._streamRenderTimer = setTimeout(renderTable, 500);
+        window._streamRenderTimer = setTimeout(() => { renderTable(); updateLiveSeqView(); }, 500);
     }
 }
 
@@ -1359,8 +1365,13 @@ function extractLogDisplay(line, colKey) {
     // For successLine, show only from the matched success pattern onwards
     if (colKey === 'successLine' && CONFIG && CONFIG.success_patterns) {
         for (const sp of CONFIG.success_patterns) {
-            const idx = line.indexOf(sp);
-            if (idx >= 0) return line.substring(idx).trim();
+            try {
+                const m = new RegExp(sp).exec(line);
+                if (m) return (m[1] !== undefined ? m[1] : line.substring(m.index)).trim();
+            } catch {
+                const idx = line.indexOf(sp);
+                if (idx >= 0) return line.substring(idx).trim();
+            }
         }
     }
     const arrowIdx = line.lastIndexOf('> ');
@@ -1574,8 +1585,7 @@ function renderTable() {
     document.getElementById('tableBody').innerHTML = displayRows.map((e, i) => {
         const cells = cols.map(c => {
             const v = e[c.key];
-            const sanitizedV = sanitizeCtrl(String(v || ''));
-            const copyBtn = `<button class="copy-btn" title="Copy" onclick="handleCopyClick(event, '${sanitizedV.replace(/'/g, "\\\\'")}')">📋</button>`;
+            const copyBtn = `<button class="copy-btn" title="Copy" data-copy="${String(v||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}" onclick="handleCopyClick(event, this.getAttribute('data-copy'))">📋</button>`;
 
             if (c.type === 'badge') return `<div class="td"><span class="badge badge-${v}">${v}</span></div>`;
             if (c.type === 'utterance') return `<div class="td"><span class="utt-link" title="Click to detail">${esc(v)}</span>${copyBtn}</div>`;
@@ -1583,8 +1593,7 @@ function renderTable() {
                 const display = extractLogDisplay(v, c.key);
                 const lineIdx = e.allLines ? e.allLines.indexOf(v) : -1;
                 const lineNum = (lineIdx >= 0 && e.lineNumbers) ? e.lineNumbers[lineIdx] : '';
-                const sanitizedDisplay = sanitizeCtrl(String(display || ''));
-                const copyBtnLog = `<button class="copy-btn" title="Copy" onclick="handleCopyClick(event, '${sanitizedDisplay.replace(/'/g, "\\\\'")}')">📋</button>`;
+                const copyBtnLog = `<button class="copy-btn" title="Copy" data-copy="${String(display||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}" onclick="handleCopyClick(event, this.getAttribute('data-copy'))">📋</button>`;
 
                 return `<div class="td" title="${esc(v)}"><span>${esc(display)}${lineNum ? ` <span style="color:#334155;font-size:10px">[L${lineNum}]</span>` : ''}</span>${copyBtnLog}</div>`;
             }
@@ -1804,9 +1813,10 @@ function toggleLiveStream() {
         document.getElementById('progressPanel').style.display = 'none';
         document.getElementById('resultsArea').style.display = 'block';
         
-        // Show live log viewer
+        // Show live log viewer, reset to table mode
         document.getElementById('rawLogViewer').style.display = 'block';
         document.getElementById('rawLogContent').textContent = '';
+        setLiveViewMode('table');
         updateDefaultCommands(); // Update commands now that the view is visible
         document.getElementById('screenshotSection').style.display = 'block';
 
@@ -1851,6 +1861,8 @@ function clearLiveLog() {
     streamInBlock = false;
     streamFoundCount = 0;
     streamMatchedCount = 0;
+    const liveSeqContent = document.getElementById('liveSeqContent');
+    if (liveSeqContent) liveSeqContent.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center">No entries yet. Start live log to see sequence diagram...</div>';
 
     // Reset progress counters
     const el1 = document.getElementById('progFound');
@@ -1987,6 +1999,182 @@ function getAllPatterns(config) {
     }).filter(Boolean);
 }
 
+// ── Live View Mode ──
+function setLiveViewMode(mode) {
+    liveViewMode = mode;
+    const tableBtn = document.getElementById('liveModeBtnTable');
+    const seqBtn = document.getElementById('liveModeBtnSeq');
+    const tableControls = document.getElementById('tableControlsArea');
+    const tableWrap = document.getElementById('tableWrap');
+    const seqView = document.getElementById('liveSeqView');
+    if (mode === 'table') {
+        if (tableBtn) tableBtn.classList.add('active');
+        if (seqBtn) seqBtn.classList.remove('active');
+        if (tableControls) tableControls.style.display = '';
+        if (tableWrap) tableWrap.style.display = '';
+        if (seqView) seqView.style.display = 'none';
+    } else {
+        if (tableBtn) tableBtn.classList.remove('active');
+        if (seqBtn) seqBtn.classList.add('active');
+        if (tableControls) tableControls.style.display = 'none';
+        if (tableWrap) tableWrap.style.display = 'none';
+        if (seqView) seqView.style.display = 'block';
+        updateLiveSeqView();
+    }
+}
+
+function generateCombinedPlantUML(allEntries) {
+    if (!allEntries || allEntries.length === 0) return '@startuml\n@enduml';
+    const allLines = [];
+    allEntries.forEach((entry, i) => {
+        const puml = generatePlantUMLForEntry(entry);
+        const lines = puml.split('\n').filter(l => l !== '@startuml' && l !== '@enduml' && !l.startsWith('title '));
+        if (lines.some(l => l.trim())) {
+            allLines.push(`== #${i + 1}: ${entry.utterance || '?'} ==`);
+            allLines.push(...lines);
+        }
+    });
+    if (!allLines.length) return '@startuml\n@enduml';
+    return ['@startuml', ...allLines, '@enduml'].join('\n');
+}
+
+function updateLiveSeqView() {
+    if (liveViewMode !== 'sequence') return;
+    const seqContent = document.getElementById('liveSeqContent');
+    if (!seqContent) return;
+    if (!entries || entries.length === 0) {
+        seqContent.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center">No entries yet. Start live log to see sequence diagram...</div>';
+        return;
+    }
+    const puml = generateCombinedPlantUML(entries);
+    seqContent.innerHTML = renderSeqSVGMain(puml);
+}
+
+function renderSeqSVGMain(src) {
+    const lines = src.split(/[\r\n]+/).map(l => l.trim()).filter(l => l && l !== '@startuml' && l !== '@enduml');
+    let title = '', pOrd = [], pSet = new Set(), msgs = [];
+    for (const l of lines) {
+        if (l.startsWith('title ')) { title = l.slice(6).trim(); continue; }
+        const sm = l.match(/^==\s*(.*?)\s*==$/);
+        if (sm) { msgs.push({ type: 'sep', lb: sm[1].trim(), dashed: false }); continue; }
+        if (/-\[hidden\]/i.test(l)) { const hm = l.match(/^(\S+)\s+.*?\s+(\S+)\s*$/); if (hm) { const hf = hm[1], ht = hm[2]; if (!pSet.has(hf)) { pSet.add(hf); pOrd.push(hf); } if (!pSet.has(ht)) { pSet.add(ht); pOrd.push(ht); } } continue; }
+        const nm = l.match(/^note\s+(right|left|over)\s*([^:]*)\s*:\s*(.*)$/i);
+        if (nm) { const nPos = nm[1].toLowerCase(); const nParts = nm[2].trim() ? nm[2].split(',').map(p => p.trim()).filter(Boolean) : []; const noteLb = nm[3].trim().replace(/\r/g, ''); msgs.push({ type: 'note', pos: nPos, parts: nParts, lb: noteLb, dashed: false }); continue; }
+        let f, t, lb, dashed = false;
+        const rm = l.match(/^(\S+)\s*(-+>>?[ox]?|[ox]?-+>>?[ox]?)\s+([^:\s]+)\s*:\s*(.*)$/);
+        if (rm) { f = rm[1].trim().replace(/\r/g,''); t = rm[3].trim().replace(/\r/g,''); lb = rm[4].trim().replace(/\r/g,''); dashed = rm[2].includes('--'); }
+        else { const lm = l.match(/^(\S+)\s*(<<?-+[<]?)\s+([^:\s]+)\s*:\s*(.*)$/); if (lm) { f = lm[3].trim().replace(/\r/g,''); t = lm[1].trim().replace(/\r/g,''); lb = lm[4].trim().replace(/\r/g,''); dashed = lm[2].includes('--'); } else { const om = l.match(/^(\S+)\s*-(.*)->\s*(\S+)$/); if (om) { f = om[1].trim().replace(/\r/g,''); lb = om[2].trim().replace(/\r/g,''); t = om[3].trim().replace(/\r/g,''); } } }
+        if (f && t) { if (!pSet.has(f)) { pSet.add(f); pOrd.push(f); } if (!pSet.has(t)) { pSet.add(t); pOrd.push(t); } msgs.push({ f, t, lb: lb || '', dashed }); }
+    }
+    if (!pOrd.length) return '<div style="color:#64748b;font-size:12px;padding:16px;text-align:center">No sequence arrows found.</div>';
+    const ev = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Find clickable URL for text matching any configured clickable_pattern
+    const cpUrlFor = text => {
+        const pats = CONFIG && CONFIG.clickable_patterns;
+        if (!pats) return null;
+        for (const [, cfg] of Object.entries(pats)) {
+            try {
+                const m = new RegExp(cfg.pattern).exec(String(text || ''));
+                if (m) {
+                    const val = m[1] !== undefined ? m[1] : m[0];
+                    const url = (cfg.url_template1 || cfg.url_template || '').replace('{value}', val);
+                    if (url) return url;
+                }
+            } catch {}
+        }
+        return null;
+    };
+    const safeUrl = url => url.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const PAD = 24, PW = 150, PH = 34, BASE_MH = 36, SEP_H = 22, FONT = 11, NOTE_MAX = 80, LH = 13, FK = 8;
+    const visW = s => { let w = 0; for (let i = 0; i < (s || '').length; i++) { const c = (s || '').charCodeAt(i); w += (c >= 0xAC00 && c <= 0xD7AF || c >= 0x1100 && c <= 0x11FF || c >= 0x4E00 && c <= 0x9FFF) ? 2 : 1; } return w; };
+    const wL = (lb, max) => { if (!lb || visW(lb) <= max) return [lb || '']; const r = []; let st = lb; while (visW(st) > max) { let w = 0, idx = 0; while (idx < st.length) { const c = st.charCodeAt(idx); const cw = (c >= 0xAC00 && c <= 0xD7AF || c >= 0x1100 && c <= 0x11FF || c >= 0x4E00 && c <= 0x9FFF) ? 2 : 1; if (w + cw > max) break; w += cw; idx++; } r.push(st.slice(0, idx)); st = st.slice(idx); } r.push(st); return r; };
+    const mLines = msgs.map(m => m.type === 'note' ? wL(m.lb, NOTE_MAX) : [m.lb || '']);
+    const rH = mLines.map((ls, i) => msgs[i].type === 'sep' ? SEP_H : msgs[i].type === 'note' ? 15 + (ls.length - 1) * LH + 15 + 20 : BASE_MH + (ls.length - 1) * LH);
+    const totMH = rH.reduce((a, b) => a + b, 0);
+    const arrowLns = msgs.flatMap((m, i) => (m.type === 'note' || m.type === 'sep') ? [] : mLines[i]);
+    const maxChunk = Math.max(10, ...(arrowLns.length ? arrowLns.map(l => l.length) : [10]));
+    const GAP = Math.max(220, Math.round(maxChunk * 6.5) + 60);
+    const N = pOrd.length;
+    const cx = {}; pOrd.forEach((p, i) => { cx[p] = PAD + PW / 2 + i * GAP; });
+    msgs.forEach((msg, i) => {
+        if (msg.type !== 'note') return;
+        const wls = mLines[i];
+        const maxNL = Math.max(10, ...wls.map(l => visW(l)));
+        const NW = Math.max(100, Math.round(maxNL * 6.5) + 52);
+        const NH = 15 + (wls.length - 1) * LH + 15;
+        let nx = 0, nw = NW;
+        if (msg.pos === 'right') { nx = Math.max(...pOrd.map(p => cx[p])) + PW / 2 + 10; }
+        else if (msg.pos === 'left') { nx = Math.min(...pOrd.map(p => cx[p])) - PW / 2 - NW - 10; }
+        else { if (msg.parts.length >= 2) { const x1 = cx[msg.parts[0]] != null ? cx[msg.parts[0]] : cx[pOrd[0]]; const x2 = cx[msg.parts[1]] != null ? cx[msg.parts[1]] : cx[pOrd[N - 1]]; nx = Math.min(x1, x2) - PW / 2; nw = Math.max(NW, Math.abs(x2 - x1) + PW); } else { const px = msg.parts[0] && cx[msg.parts[0]] != null ? cx[msg.parts[0]] : cx[pOrd[Math.floor((N - 1) / 2)]]; nx = px - NW / 2; } }
+        msg._nx = nx; msg._nw = nw; msg._nh = NH;
+    });
+    let xShift = 0;
+    msgs.forEach(msg => { if (msg.type === 'note' && msg._nx < PAD) xShift = Math.max(xShift, PAD - msg._nx); });
+    if (xShift > 0) { pOrd.forEach(p => { cx[p] += xShift; }); msgs.forEach(msg => { if (msg.type === 'note') msg._nx += xShift; }); }
+    const baseW = PAD * 2 + (N - 1) * GAP + PW + xShift;
+    let extraW = 0;
+    msgs.forEach(msg => { if (msg.type === 'note') extraW = Math.max(extraW, msg._nx + msg._nw - (baseW - PAD)); });
+    const W = baseW + Math.max(0, extraW);
+    const SEQ_GAP = 14;
+    const tH = title ? 40 : 0, H = tH + PAD / 2 + PH + SEQ_GAP + totMH + SEQ_GAP + PH + PAD / 2;
+    let s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" style="display:block;min-width:' + W + 'px">';
+    s += '<rect width="' + W + '" height="' + H + '" fill="#0a0d14"/>';
+    if (title) s += '<text x="' + (W / 2) + '" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#e2e8f0" font-family="Segoe UI,system-ui,sans-serif">' + ev(title) + '</text>';
+    const topY = tH + PAD / 2;
+    pOrd.forEach(p => { const x = cx[p] - PW / 2; s += '<rect x="' + x + '" y="' + topY + '" width="' + PW + '" height="' + PH + '" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="' + cx[p] + '" y="' + (topY + PH / 2 + 5) + '" text-anchor="middle" font-size="' + (FONT + 1) + '" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">' + ev(p) + '</text>'; });
+    const llStart = topY + PH, llY1 = llStart + SEQ_GAP, llY2 = llY1 + totMH, botY = llY2 + SEQ_GAP;
+    pOrd.forEach(p => { s += '<line x1="' + cx[p] + '" y1="' + llStart + '" x2="' + cx[p] + '" y2="' + botY + '" stroke="#1e2433" stroke-width="1.5" stroke-dasharray="6,4"/>'; });
+    let cumY = llY1;
+    msgs.forEach((msg, i) => {
+        const rh = rH[i], wls = mLines[i], tl = wls.length;
+        const yArr = cumY + rh * 0.5; cumY += rh;
+        if (msg.type === 'sep') {
+            const sy = yArr;
+            s += '<line x1="' + PAD + '" y1="' + sy + '" x2="' + (W - PAD) + '" y2="' + sy + '" stroke="#2a3a5c" stroke-width="1.5" stroke-dasharray="4,2"/>';
+            if (msg.lb) { const tw = Math.round(msg.lb.length * 7) + 20; s += '<rect x="' + (W / 2 - tw / 2 - 4) + '" y="' + (sy - 9) + '" width="' + (tw + 8) + '" height="18" fill="#0a0d14"/>'; s += '<text x="' + (W / 2) + '" y="' + (sy + 4) + '" text-anchor="middle" font-size="' + FONT + '" fill="#94a3b8" font-family="Segoe UI,system-ui,sans-serif">' + ev(msg.lb) + '</text>'; }
+        } else if (msg.type === 'note') {
+            const nx = msg._nx, NW = msg._nw, NH = msg._nh, ny = msg.pos === 'over' ? yArr - NH / 2 : yArr - (rh + BASE_MH) / 2;
+            const tx = nx + 12, ty0 = ny + 15;
+            const noteUrl = wls.reduce((u, ln) => u || cpUrlFor(ln), null);
+            const noteStroke = noteUrl ? '#a78bfa' : '#fbbf24';
+            const noteOnClick = noteUrl ? ' onclick="openURLExternal(\'' + safeUrl(noteUrl) + '\')" style="cursor:pointer"' : '';
+            s += '<polygon' + noteOnClick + ' points="' + nx + ',' + ny + ' ' + (nx + NW - FK) + ',' + ny + ' ' + (nx + NW) + ',' + (ny + FK) + ' ' + (nx + NW) + ',' + (ny + NH) + ' ' + nx + ',' + (ny + NH) + '" fill="#1a2010" stroke="' + noteStroke + '" stroke-width="1.5"/>';
+            s += '<polygon points="' + (nx + NW - FK) + ',' + ny + ' ' + (nx + NW) + ',' + (ny + FK) + ' ' + (nx + NW - FK) + ',' + (ny + FK) + '" fill="#4a3800" stroke="' + noteStroke + '" stroke-width="1"/>';
+            s += '<text text-anchor="start" font-size="' + FONT + '" fill="#e2e8f0" font-family="Consolas,monospace">';
+            wls.forEach((ln, li) => { s += '<tspan x="' + tx + '" y="' + (ty0 + li * LH) + '">' + ev(ln) + '</tspan>'; });
+            s += '</text>';
+            const _cp = JSON.stringify(msg.lb).replace(/"/g, '&quot;');
+            s += '<g onclick="(function(e){e.stopPropagation();navigator.clipboard.writeText(' + _cp + ').catch(function(){})})(event)" style="cursor:pointer"><rect x="' + (nx + NW - 30) + '" y="' + (ny + 4) + '" width="16" height="12" rx="2" fill="rgba(251,191,36,0.15)" stroke="rgba(251,191,36,0.4)" stroke-width="1"/><text x="' + (nx + NW - 22) + '" y="' + (ny + 13) + '" text-anchor="middle" font-size="9" fill="#fbbf24" font-family="sans-serif">&#x29C9;</text></g>';
+        } else {
+            const x1 = cx[msg.f] != null ? cx[msg.f] : PAD + PW / 2, x2 = cx[msg.t] != null ? cx[msg.t] : PAD + PW / 2;
+            const clr = msg.dashed ? '#7dd3a8' : '#60dcfa';
+            const da = msg.dashed ? ' stroke-dasharray="6,4"' : '';
+            const arrowUrl = cpUrlFor(msg.lb);
+            const arrowOnClick = arrowUrl ? ' onclick="openURLExternal(\'' + safeUrl(arrowUrl) + '\')" style="cursor:pointer"' : '';
+            if (msg.f === msg.t) {
+                const rx = x1 + 58;
+                s += '<path d="M' + x1 + ',' + (yArr - 14) + ' C' + rx + ',' + (yArr - 14) + ' ' + rx + ',' + (yArr + 14) + ' ' + x1 + ',' + (yArr + 14) + '" fill="none" stroke="#a78bfa" stroke-width="1.5"' + da + '/>';
+                s += '<polygon points="' + x1 + ',' + (yArr + 14) + ' ' + (x1 - 6) + ',' + (yArr + 6) + ' ' + (x1 + 6) + ',' + (yArr + 6) + '" fill="#a78bfa"/>';
+                const ty0s = yArr - (tl - 1) * LH / 2;
+                s += '<text' + arrowOnClick + ' font-size="' + FONT + '" fill="#a78bfa" font-family="Consolas,monospace">';
+                wls.forEach((ln, li) => { s += '<tspan x="' + (rx + 6) + '" y="' + (ty0s + li * LH) + '">' + ev(ln) + '</tspan>'; });
+                s += '</text>';
+            } else {
+                const d = x2 > x1 ? 1 : -1;
+                s += '<line x1="' + x1 + '" y1="' + yArr + '" x2="' + x2 + '" y2="' + yArr + '" stroke="' + clr + '" stroke-width="1.5"' + da + '/>';
+                s += '<polygon points="' + x2 + ',' + yArr + ' ' + (x2 - d * 10) + ',' + (yArr - 5) + ' ' + (x2 - d * 10) + ',' + (yArr + 5) + '" fill="' + clr + '"/>';
+                const midX = (x1 + x2) / 2, ty0 = yArr - tl * LH;
+                s += '<text' + arrowOnClick + ' text-anchor="middle" font-size="' + FONT + '" fill="#e2e8f0" font-family="Consolas,monospace">';
+                wls.forEach((ln, li) => { s += '<tspan x="' + midX + '" y="' + (ty0 + li * LH) + '">' + ev(ln) + '</tspan>'; });
+                s += '</text>';
+            }
+        }
+    });
+    pOrd.forEach(p => { const x = cx[p] - PW / 2; s += '<rect x="' + x + '" y="' + botY + '" width="' + PW + '" height="' + PH + '" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="' + cx[p] + '" y="' + (botY + PH / 2 + 5) + '" text-anchor="middle" font-size="' + (FONT + 1) + '" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">' + ev(p) + '</text>'; });
+    s += '</svg>';
+    return s;
+}
+
 // ── Sequence Diagram ──
 function generatePlantUMLForEntry(entry) {
     const lines = entry.allLines || [];
@@ -2007,11 +2195,14 @@ function generatePlantUMLForEntry(entry) {
     function patStr(p) { return typeof p === 'string' ? p : (p && p.pattern) || ''; }
     // Apply template substitution + line number prefix at start of label (after last ': ')
     function applyPuml(tmpl, value, lineNum) {
+        // Strip \r, \n and other control chars from value — they break PlantUML line structure
+        // and cause \r to act as carriage-return in SVG text, overwriting rendered content
+        const safeValue = String(value || '').replace(/[\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
         const isTitle = tmpl.trimStart().startsWith('title');
-        if (isTitle || !tmpl.includes('{value}')) return tmpl.replace('{value}', value);
+        if (isTitle || !tmpl.includes('{value}')) return tmpl.replace('{value}', safeValue);
         const colonIdx = tmpl.lastIndexOf(': ');
         const labelTmpl = colonIdx >= 0 ? tmpl.substring(colonIdx + 2) : tmpl;
-        const labelStr = `L${lineNum}: ${labelTmpl.replace('{value}', value)}`;
+        const labelStr = `L${lineNum}: ${labelTmpl.replace('{value}', safeValue)}`;
         return colonIdx >= 0 ? tmpl.substring(0, colonIdx + 2) + labelStr : labelStr;
     }
 
@@ -2232,7 +2423,7 @@ function scheduleSeq(){clearTimeout(window._st);window._st=setTimeout(updateSeq,
 function updateSeq(){const txt=document.getElementById('seqPumlTxt').value;document.getElementById('seqSvgWrap').innerHTML=renderSeqSVG(txt)}
 function copySeqPuml(){const t=document.getElementById('seqPumlTxt').value;navigator.clipboard.writeText(t).then(()=>{const b=document.getElementById('seqCopyBtn');const o=b.textContent;b.textContent='\\u2713 Copied!';setTimeout(()=>b.textContent=o,1500)}).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta)})}
 function renderSeqSVG(src){
-  const lines=src.split('\\n').map(l=>l.trim()).filter(l=>l&&l!=='@startuml'&&l!=='@enduml');
+  const lines=src.split(/[\\r\\n]+/).map(l=>l.trim()).filter(l=>l&&l!=='@startuml'&&l!=='@enduml');
   let title='',pOrd=[],pSet=new Set(),msgs=[];
   for(const l of lines){
     if(l.startsWith('title ')){title=l.slice(6).trim();continue}
@@ -2268,7 +2459,8 @@ function renderSeqSVG(src){
   if(!pOrd.length)return '<div style="color:#64748b;font-size:12px;padding:16px;text-align:center">No sequence arrows found in PlantUML source.</div>';
   const ev=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   const PAD=24,PW=150,PH=34,BASE_MH=36,SEP_H=22,FONT=11,NOTE_MAX=80,LH=13,FK=8;
-  const wL=(lb,max)=>{if(!lb||lb.length<=max)return[lb||''];const r=[];let s=lb;while(s.length>max){r.push(s.slice(0,max));s=s.slice(max);}r.push(s);return r};
+  const visW=s=>{let w=0;for(let i=0;i<(s||'').length;i++){const c=(s||'').charCodeAt(i);w+=(c>=0xAC00&&c<=0xD7AF||c>=0x1100&&c<=0x11FF||c>=0x4E00&&c<=0x9FFF)?2:1;}return w};
+  const wL=(lb,max)=>{if(!lb||visW(lb)<=max)return[lb||''];const r=[];let st=lb;while(visW(st)>max){let w=0,idx=0;while(idx<st.length){const c=st.charCodeAt(idx);const cw=(c>=0xAC00&&c<=0xD7AF||c>=0x1100&&c<=0x11FF||c>=0x4E00&&c<=0x9FFF)?2:1;if(w+cw>max)break;w+=cw;idx++;}r.push(st.slice(0,idx));st=st.slice(idx);}r.push(st);return r};
   // Arrow labels: no wrapping. Notes: wrap at NOTE_MAX. Separators: single label.
   const mLines=msgs.map(m=>m.type==='note'?wL(m.lb,NOTE_MAX):[m.lb||'']);
   const rH=mLines.map((ls,i)=>msgs[i].type==='sep'?SEP_H:msgs[i].type==='note'?15+(ls.length-1)*LH+15+20:BASE_MH+(ls.length-1)*LH);
@@ -2283,8 +2475,8 @@ function renderSeqSVG(src){
   msgs.forEach((msg,i)=>{
     if(msg.type!=='note')return;
     const wls=mLines[i];
-    const maxNL=Math.max(10,...wls.map(l=>l.length));
-    const NW=Math.max(80,Math.round(maxNL*6.5)+20);
+    const maxNL=Math.max(10,...wls.map(l=>visW(l)));
+    const NW=Math.max(100,Math.round(maxNL*6.5)+52);
     const NH=15+(wls.length-1)*LH+15;
     let nx=0,nw=NW;
     if(msg.pos==='right'){
@@ -2340,6 +2532,8 @@ function renderSeqSVG(src){
       s+='<text text-anchor="start" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';
       wls.forEach((ln,li)=>{s+='<tspan x="'+tx+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});
       s+='</text>';
+      const _cp=JSON.stringify(msg.lb).replace(/"/g,'&quot;');
+      s+='<g onclick="(function(e){e.stopPropagation();navigator.clipboard.writeText('+_cp+').catch(function(){})})(event)" style="cursor:pointer"><rect x="'+(nx+NW-30)+'" y="'+(ny+4)+'" width="16" height="12" rx="2" fill="rgba(251,191,36,0.15)" stroke="rgba(251,191,36,0.4)" stroke-width="1"/><text x="'+(nx+NW-22)+'" y="'+(ny+13)+'" text-anchor="middle" font-size="9" fill="#fbbf24" font-family="sans-serif">&#x29C9;</text></g>';
     }else{
       const x1=cx[msg.f]!=null?cx[msg.f]:PAD+PW/2,x2=cx[msg.t]!=null?cx[msg.t]:PAD+PW/2;
       const clr=msg.dashed?'#7dd3a8':'#60dcfa';
@@ -2970,11 +3164,12 @@ if(C&&C.pattern_groups){for(var gk in C.pattern_groups){var grp=C.pattern_groups
 var titles=items.filter(function(p){return p.isTitle}).map(function(p){return p.text});
 var rest=items.filter(function(p){return!p.isTitle}).map(function(p){return p.text});
 return['@startuml'].concat(titles).concat(rest).concat(['@enduml']).join('\\n')}
-function rSeqSVG(src){var lines=src.split('\\n').map(function(l){return l.trim()}).filter(function(l){return l&&l!=='@startuml'&&l!=='@enduml'});var title='',pOrd=[],pSet={},msgs=[];for(var i=0;i<lines.length;i++){var l=lines[i];if(l.indexOf('title ')===0){title=l.slice(6).trim();continue}var sm=l.match(/^==\s*(.*?)\s*==$/);if(sm){msgs.push({type:'sep',lb:sm[1].trim(),dashed:false});continue}if(/-\[hidden\]/i.test(l)){var hm=l.match(/^(\S+)\s+.*?\s+(\S+)\s*$/);if(hm){var hf=hm[1],ht=hm[2];if(!pSet[hf]){pSet[hf]=1;pOrd.push(hf)}if(!pSet[ht]){pSet[ht]=1;pOrd.push(ht)}}continue}var nm=l.match(/^note\s+(right|left|over)\s*([^:]*)\s*:\s*(.*)$/i);if(nm){var nPos=nm[1].toLowerCase();var nParts=nm[2].trim()?nm[2].split(',').map(function(p){return p.trim()}).filter(Boolean):[];msgs.push({type:'note',pos:nPos,parts:nParts,lb:nm[3].trim(),dashed:false});continue}var f,t,lb,dashed=false;var rm=l.match(/^(\S+)\s*(-+>>?[ox]?|[ox]?-+>>?[ox]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(rm){f=rm[1].trim();t=rm[3].trim();lb=rm[4].trim();dashed=rm[2].indexOf('--')>=0}else{var lm=l.match(/^(\S+)\s*(<<?-+[<]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(lm){f=lm[3].trim();t=lm[1].trim();lb=lm[4].trim();dashed=lm[2].indexOf('--')>=0}else{var om=l.match(/^(\S+)\s*-(.*)->\s*(\S+)$/);if(om){f=om[1].trim();lb=om[2].trim();t=om[3].trim()}}}if(f&&t){if(!pSet[f]){pSet[f]=1;pOrd.push(f)}if(!pSet[t]){pSet[t]=1;pOrd.push(t)}msgs.push({f:f,t:t,lb:lb||'',dashed:dashed})}}
+function rSeqSVG(src){var lines=src.split(/[\\r\\n]+/).map(function(l){return l.trim()}).filter(function(l){return l&&l!=='@startuml'&&l!=='@enduml'});var title='',pOrd=[],pSet={},msgs=[];for(var i=0;i<lines.length;i++){var l=lines[i];if(l.indexOf('title ')===0){title=l.slice(6).trim();continue}var sm=l.match(/^==\s*(.*?)\s*==$/);if(sm){msgs.push({type:'sep',lb:sm[1].trim(),dashed:false});continue}if(/-\[hidden\]/i.test(l)){var hm=l.match(/^(\S+)\s+.*?\s+(\S+)\s*$/);if(hm){var hf=hm[1],ht=hm[2];if(!pSet[hf]){pSet[hf]=1;pOrd.push(hf)}if(!pSet[ht]){pSet[ht]=1;pOrd.push(ht)}}continue}var nm=l.match(/^note\s+(right|left|over)\s*([^:]*)\s*:\s*(.*)$/i);if(nm){var nPos=nm[1].toLowerCase();var nParts=nm[2].trim()?nm[2].split(',').map(function(p){return p.trim()}).filter(Boolean):[];msgs.push({type:'note',pos:nPos,parts:nParts,lb:nm[3].trim(),dashed:false});continue}var f,t,lb,dashed=false;var rm=l.match(/^(\S+)\s*(-+>>?[ox]?|[ox]?-+>>?[ox]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(rm){f=rm[1].trim();t=rm[3].trim();lb=rm[4].trim();dashed=rm[2].indexOf('--')>=0}else{var lm=l.match(/^(\S+)\s*(<<?-+[<]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(lm){f=lm[3].trim();t=lm[1].trim();lb=lm[4].trim();dashed=lm[2].indexOf('--')>=0}else{var om=l.match(/^(\S+)\s*-(.*)->\s*(\S+)$/);if(om){f=om[1].trim();lb=om[2].trim();t=om[3].trim()}}}if(f&&t){if(!pSet[f]){pSet[f]=1;pOrd.push(f)}if(!pSet[t]){pSet[t]=1;pOrd.push(t)}msgs.push({f:f,t:t,lb:lb||'',dashed:dashed})}}
 if(!pOrd.length)return'<div style="color:#64748b;font-size:12px;padding:16px;text-align:center">No sequence arrows found.</div>';
 function ev(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 var PAD=24,PW=150,PH=34,BASE_MH=36,SEP_H=22,FONT=11,NOTE_MAX=80,LH=13,FK=8;
-function wL(lb,max){if(!lb||lb.length<=max)return[lb||''];var r=[],ws=lb;while(ws.length>max){r.push(ws.slice(0,max));ws=ws.slice(max);}r.push(ws);return r}
+function vW(s){var w=0;for(var i=0;i<(s||'').length;i++){var c=(s||'').charCodeAt(i);w+=(c>=0xAC00&&c<=0xD7AF||c>=0x1100&&c<=0x11FF||c>=0x4E00&&c<=0x9FFF)?2:1;}return w}
+function wL(lb,max){if(!lb||vW(lb)<=max)return[lb||''];var r=[],ws=lb;while(vW(ws)>max){var w=0,idx=0;while(idx<ws.length){var c=ws.charCodeAt(idx);var cw=(c>=0xAC00&&c<=0xD7AF||c>=0x1100&&c<=0x11FF||c>=0x4E00&&c<=0x9FFF)?2:1;if(w+cw>max)break;w+=cw;idx++;}r.push(ws.slice(0,idx));ws=ws.slice(idx);}r.push(ws);return r}
 var mLines=msgs.map(function(m){return m.type==='note'?wL(m.lb,NOTE_MAX):[m.lb||'']});
 var rH=mLines.map(function(ls,i){return msgs[i].type==='sep'?SEP_H:msgs[i].type==='note'?15+(ls.length-1)*LH+15+20:BASE_MH+(ls.length-1)*LH});
 var totMH=rH.reduce(function(a,b){return a+b},0);
@@ -2982,13 +3177,13 @@ var arrowLns=[];msgs.forEach(function(m,i){if(m.type!=='note'&&m.type!=='sep')mL
 var maxChunk=Math.max(10,arrowLns.length?Math.max.apply(null,arrowLns.map(function(l){return l.length})):10);
 var GAP=Math.max(220,Math.round(maxChunk*6.5)+60);
 var N=pOrd.length;var cx={};pOrd.forEach(function(p,i){cx[p]=PAD+PW/2+i*GAP});
-msgs.forEach(function(msg,i){if(msg.type!=='note')return;var wls=mLines[i];var maxNL=Math.max.apply(null,[10].concat(wls.map(function(l){return l.length})));var NW=Math.max(80,Math.round(maxNL*6.5)+20);var NH=15+(wls.length-1)*LH+15;var nx=0,nw=NW;if(msg.pos==='right'){nx=Math.max.apply(null,pOrd.map(function(p){return cx[p]}))+PW/2+10}else if(msg.pos==='left'){nx=Math.min.apply(null,pOrd.map(function(p){return cx[p]}))-PW/2-NW-10}else{if(msg.parts.length>=2){var x1=cx[msg.parts[0]]!=null?cx[msg.parts[0]]:cx[pOrd[0]];var x2=cx[msg.parts[1]]!=null?cx[msg.parts[1]]:cx[pOrd[N-1]];nx=Math.min(x1,x2)-PW/2;nw=Math.max(NW,Math.abs(x2-x1)+PW)}else{var px=msg.parts[0]&&cx[msg.parts[0]]!=null?cx[msg.parts[0]]:cx[pOrd[Math.floor((N-1)/2)]];nx=px-NW/2}}msg._nx=nx;msg._nw=nw;msg._nh=NH});
+msgs.forEach(function(msg,i){if(msg.type!=='note')return;var wls=mLines[i];var maxNL=Math.max.apply(null,[10].concat(wls.map(function(l){return vW(l)})));var NW=Math.max(100,Math.round(maxNL*6.5)+52);var NH=15+(wls.length-1)*LH+15;var nx=0,nw=NW;if(msg.pos==='right'){nx=Math.max.apply(null,pOrd.map(function(p){return cx[p]}))+PW/2+10}else if(msg.pos==='left'){nx=Math.min.apply(null,pOrd.map(function(p){return cx[p]}))-PW/2-NW-10}else{if(msg.parts.length>=2){var x1=cx[msg.parts[0]]!=null?cx[msg.parts[0]]:cx[pOrd[0]];var x2=cx[msg.parts[1]]!=null?cx[msg.parts[1]]:cx[pOrd[N-1]];nx=Math.min(x1,x2)-PW/2;nw=Math.max(NW,Math.abs(x2-x1)+PW)}else{var px=msg.parts[0]&&cx[msg.parts[0]]!=null?cx[msg.parts[0]]:cx[pOrd[Math.floor((N-1)/2)]];nx=px-NW/2}}msg._nx=nx;msg._nw=nw;msg._nh=NH});
 var xShift=0;msgs.forEach(function(msg){if(msg.type==='note'&&msg._nx<PAD)xShift=Math.max(xShift,PAD-msg._nx)});
 if(xShift>0){pOrd.forEach(function(p){cx[p]+=xShift});msgs.forEach(function(msg){if(msg.type==='note')msg._nx+=xShift})}
 var baseW=PAD*2+(N-1)*GAP+PW+xShift;var extraW=0;msgs.forEach(function(msg){if(msg.type==='note')extraW=Math.max(extraW,msg._nx+msg._nw-(baseW-PAD))});
 var W=baseW+Math.max(0,extraW);var SEQ_GAP=14;var tH=title?40:0,H=tH+PAD/2+PH+SEQ_GAP+totMH+SEQ_GAP+PH+PAD/2;
 var s='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" style="display:block;min-width:'+W+'px">';s+='<rect width="'+W+'" height="'+H+'" fill="#0a0d14"/>';if(title)s+='<text x="'+(W/2)+'" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#e2e8f0" font-family="Segoe UI,system-ui,sans-serif">'+ev(title)+'</text>';var topY=tH+PAD/2;pOrd.forEach(function(p){var x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+topY+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(topY+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});var llStart=topY+PH,llY1=llStart+SEQ_GAP,llY2=llY1+totMH,botY=llY2+SEQ_GAP;pOrd.forEach(function(p){s+='<line x1="'+cx[p]+'" y1="'+llStart+'" x2="'+cx[p]+'" y2="'+botY+'" stroke="#1e2433" stroke-width="1.5" stroke-dasharray="6,4"/>'});
-var cumY=llY1;msgs.forEach(function(msg,i){var rh=rH[i],wls=mLines[i],tl=wls.length;var yArr=cumY+rh*0.5;cumY+=rh;if(msg.type==='sep'){var sy=yArr;s+='<line x1="'+PAD+'" y1="'+sy+'" x2="'+(W-PAD)+'" y2="'+sy+'" stroke="#2a3a5c" stroke-width="1.5" stroke-dasharray="4,2"/>';if(msg.lb){var tw=Math.round(msg.lb.length*7)+20;s+='<rect x="'+(W/2-tw/2-4)+'" y="'+(sy-9)+'" width="'+(tw+8)+'" height="18" fill="#0a0d14"/>';s+='<text x="'+(W/2)+'" y="'+(sy+4)+'" text-anchor="middle" font-size="'+FONT+'" fill="#94a3b8" font-family="Segoe UI,system-ui,sans-serif">'+ev(msg.lb)+'</text>'}}else if(msg.type==='note'){var nx=msg._nx,NW=msg._nw,NH=msg._nh,ny=msg.pos==='over'?yArr-NH/2:yArr-(rh+BASE_MH)/2;var tx=nx+12,ty0n=ny+15;s+='<polygon points="'+nx+','+ny+' '+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW)+','+(ny+NH)+' '+nx+','+(ny+NH)+'" fill="#1a2010" stroke="#fbbf24" stroke-width="1.5"/>';s+='<polygon points="'+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW-FK)+','+(ny+FK)+'" fill="#4a3800" stroke="#fbbf24" stroke-width="1"/>';s+='<text text-anchor="start" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+tx+'" y="'+(ty0n+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}else{var x1=cx[msg.f]!=null?cx[msg.f]:PAD+PW/2,x2=cx[msg.t]!=null?cx[msg.t]:PAD+PW/2;var clr=msg.dashed?'#7dd3a8':'#60dcfa';var da=msg.dashed?' stroke-dasharray="6,4"':'';if(msg.f===msg.t){var rx=x1+58;s+='<path d="M'+x1+','+(yArr-14)+' C'+rx+','+(yArr-14)+' '+rx+','+(yArr+14)+' '+x1+','+(yArr+14)+'" fill="none" stroke="#a78bfa" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x1+','+(yArr+14)+' '+(x1-6)+','+(yArr+6)+' '+(x1+6)+','+(yArr+6)+'" fill="#a78bfa"/>';var ty0s=yArr-(tl-1)*LH/2;s+='<text font-size="'+FONT+'" fill="#a78bfa" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+(rx+6)+'" y="'+(ty0s+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}else{var d=x2>x1?1:-1;s+='<line x1="'+x1+'" y1="'+yArr+'" x2="'+x2+'" y2="'+yArr+'" stroke="'+clr+'" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x2+','+yArr+' '+(x2-d*10)+','+(yArr-5)+' '+(x2-d*10)+','+(yArr+5)+'" fill="'+clr+'"/>';var midX=(x1+x2)/2,ty0=yArr-tl*LH;s+='<text text-anchor="middle" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+midX+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}}});
+var cumY=llY1;msgs.forEach(function(msg,i){var rh=rH[i],wls=mLines[i],tl=wls.length;var yArr=cumY+rh*0.5;cumY+=rh;if(msg.type==='sep'){var sy=yArr;s+='<line x1="'+PAD+'" y1="'+sy+'" x2="'+(W-PAD)+'" y2="'+sy+'" stroke="#2a3a5c" stroke-width="1.5" stroke-dasharray="4,2"/>';if(msg.lb){var tw=Math.round(msg.lb.length*7)+20;s+='<rect x="'+(W/2-tw/2-4)+'" y="'+(sy-9)+'" width="'+(tw+8)+'" height="18" fill="#0a0d14"/>';s+='<text x="'+(W/2)+'" y="'+(sy+4)+'" text-anchor="middle" font-size="'+FONT+'" fill="#94a3b8" font-family="Segoe UI,system-ui,sans-serif">'+ev(msg.lb)+'</text>'}}else if(msg.type==='note'){var nx=msg._nx,NW=msg._nw,NH=msg._nh,ny=msg.pos==='over'?yArr-NH/2:yArr-(rh+BASE_MH)/2;var tx=nx+12,ty0n=ny+15;s+='<polygon points="'+nx+','+ny+' '+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW)+','+(ny+NH)+' '+nx+','+(ny+NH)+'" fill="#1a2010" stroke="#fbbf24" stroke-width="1.5"/>';s+='<polygon points="'+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW-FK)+','+(ny+FK)+'" fill="#4a3800" stroke="#fbbf24" stroke-width="1"/>';s+='<text text-anchor="start" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+tx+'" y="'+(ty0n+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>';var _cp=JSON.stringify(msg.lb).replace(/"/g,'&quot;');s+='<g onclick="(function(e){e.stopPropagation();navigator.clipboard.writeText('+_cp+').catch(function(){})})(event)" style="cursor:pointer"><rect x="'+(nx+NW-30)+'" y="'+(ny+4)+'" width="16" height="12" rx="2" fill="rgba(251,191,36,0.15)" stroke="rgba(251,191,36,0.4)" stroke-width="1"/><text x="'+(nx+NW-22)+'" y="'+(ny+13)+'" text-anchor="middle" font-size="9" fill="#fbbf24" font-family="sans-serif">&#x29C9;</text></g>'}else{var x1=cx[msg.f]!=null?cx[msg.f]:PAD+PW/2,x2=cx[msg.t]!=null?cx[msg.t]:PAD+PW/2;var clr=msg.dashed?'#7dd3a8':'#60dcfa';var da=msg.dashed?' stroke-dasharray="6,4"':'';if(msg.f===msg.t){var rx=x1+58;s+='<path d="M'+x1+','+(yArr-14)+' C'+rx+','+(yArr-14)+' '+rx+','+(yArr+14)+' '+x1+','+(yArr+14)+'" fill="none" stroke="#a78bfa" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x1+','+(yArr+14)+' '+(x1-6)+','+(yArr+6)+' '+(x1+6)+','+(yArr+6)+'" fill="#a78bfa"/>';var ty0s=yArr-(tl-1)*LH/2;s+='<text font-size="'+FONT+'" fill="#a78bfa" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+(rx+6)+'" y="'+(ty0s+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}else{var d=x2>x1?1:-1;s+='<line x1="'+x1+'" y1="'+yArr+'" x2="'+x2+'" y2="'+yArr+'" stroke="'+clr+'" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x2+','+yArr+' '+(x2-d*10)+','+(yArr-5)+' '+(x2-d*10)+','+(yArr+5)+'" fill="'+clr+'"/>';var midX=(x1+x2)/2,ty0=yArr-tl*LH;s+='<text text-anchor="middle" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+midX+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}}});
 pOrd.forEach(function(p){var x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+botY+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(botY+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});s+='</svg>';return s}
 var _crData=null;function initCR(e,th){e.preventDefault();_crData={th:th,x:e.clientX,w:th.offsetWidth};document.addEventListener('mousemove',doCR);document.addEventListener('mouseup',stopCR)}
 function doCR(e){if(!_crData)return;var w=Math.max(60,_crData.w+e.clientX-_crData.x);_crData.th.style.width=w+'px';_crData.th.style.minWidth=w+'px'}

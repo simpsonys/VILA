@@ -166,22 +166,32 @@ sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
             </div>
 
             <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px;gap:12px">
-                <div class="stats-bar" id="statsBar"></div>
+                <div style="display:flex;align-items:center;justify-content:space-between;width:100%;flex-wrap:wrap;gap:8px">
+                    <div class="stats-bar" id="statsBar"></div>
+                    <div class="mode-switch-wrap" style="margin:0">
+                        <button class="mode-btn active" id="liveModeBtnTable" onclick="setLiveViewMode('table')" title="Table View - 분석 결과 테이블 표시">
+                            <span class="mode-icon">📋</span> Table
+                        </button>
+                        <button class="mode-btn" id="liveModeBtnSeq" onclick="setLiveViewMode('sequence')" title="Sequence Diagram View - PlantUML 시퀀스 다이어그램">
+                            <span class="mode-icon">📈</span> Sequence
+                        </button>
+                    </div>
+                </div>
             </div>
             
             <!-- Live Log Viewer -->
             <div class="raw-log-viewer" id="rawLogViewer" style="display:none;position:relative;">
                 <div style="position:sticky;top:10px;z-index:10;display:flex;justify-content:space-between;align-items:center;padding:0 10px;margin-bottom:-36px;pointer-events:none;">
                     <div style="display:flex;gap:6px;pointer-events:auto;">
-                        <button class="btn btn-ghost" onclick="toggleLiveStream()" style="padding:3px 10px;font-size:11px;color:#f87171;border-color:rgba(248,113,113,0.4);background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">■ Stop</button>
-                        <button class="btn btn-ghost" onclick="clearLiveLog()" style="padding:3px 10px;font-size:11px;background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">🗑 Clear</button>
+                        <button class="btn btn-ghost" onclick="toggleLiveStream()" style="padding:3px 10px;font-size:12px;color:#f87171;border-color:rgba(248,113,113,0.4);background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">■ Stop</button>
+                        <button class="btn btn-ghost" onclick="clearLiveLog()" style="padding:3px 10px;font-size:12px;background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">🗑 Clear</button>
                     </div>
                     <input class="search-input" id="rawLogSearchBox" placeholder="Search in Live Log..." oninput="searchRawLog()" style="width:200px;padding:4px 10px;font-size:12px;pointer-events:auto;background:#0f1117;box-shadow:0 2px 8px rgba(0,0,0,0.5);">
                 </div>
                 <pre id="rawLogContent"></pre>
             </div>
 
-            <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px;gap:12px">
+            <div id="tableControlsArea" style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px;gap:12px">
                 <div style="width:100%;display:flex;justify-content:center">
                     <div style="display:flex;align-items:center;gap:8px;width:100%">
                         <input class="search-input" id="searchBox" style="flex:1;min-width:160px" placeholder="Search all columns..." oninput="renderTable()">
@@ -199,7 +209,7 @@ sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
                 </div>
             </div>
 
-            <div class="table-wrap">
+            <div class="table-wrap" id="tableWrap">
                 <div class="table-head" id="tableHead"></div>
                 <div class="table-filters" id="tableFilters"></div>
                 <div class="table-body" id="tableBody"></div>
@@ -208,6 +218,11 @@ sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
                     <div>분석 완료 후 결과가 표시됩니다...</div>
                     <div style="font-size:11px;color:#334155;margin-top:4px">Batch 모드 · 실시간으로 보려면 헤더의 Stream 버튼을 누르세요</div>
                 </div>
+            </div>
+
+            <!-- Live Sequence View (swaps with table area in Sequence mode) -->
+            <div id="liveSeqView" style="display:none;padding:16px;overflow-x:auto;min-height:200px;background:#0a0d14;border-radius:6px;margin-bottom:14px">
+                <div id="liveSeqContent" style="color:#64748b;font-size:12px;padding:20px;text-align:center">No entries yet. Start live log to see sequence diagram...</div>
             </div>
         </div>
     </div>
