@@ -25,6 +25,7 @@ let currentDetailData = null; // holds utterance data if this is a detail window
 let streamingMode = true; // streaming analysis mode (false = wait until complete, true = show results in real-time)
 let currentConfigFileName = null; // currently active preset config filename
 let isLiveStreaming = false;
+let liveViewMode = 'table'; // 'table' or 'sequence'
 let screenshotSavePath = null;
 let tablePageSize = 50; // rows shown in main results table (50/100/150/Infinity=ALL)
 
@@ -864,8 +865,13 @@ function stripLogPrefix(line, patterns) {
     if (!line) return line;
     if (patterns) {
         for (const p of patterns) {
-            const idx = line.indexOf(p);
-            if (idx >= 0) return line.substring(idx).trim();
+            try {
+                const m = new RegExp(p).exec(line);
+                if (m) return line.substring(m.index).trim();
+            } catch {
+                const idx = line.indexOf(p);
+                if (idx >= 0) return line.substring(idx).trim();
+            }
         }
     }
     return stripTs(line);
@@ -1175,8 +1181,8 @@ function parseBlock(lines, lineNumbers = []) {
 
     let hasS = false, hasF = false;
     for (const l of lines) {
-        for (const sp of (CONFIG.success_patterns || [])) if (l.includes(sp)) { hasS = true; e.successLine = l; }
-        if (CONFIG.failure_patterns) for (const fp of CONFIG.failure_patterns) if (l.includes(fp)) { hasF = true; e.failLines.push(l); }
+        for (const sp of (CONFIG.success_patterns || [])) { try { if (new RegExp(sp).test(l)) { hasS = true; e.successLine = l; } } catch { if (l.includes(sp)) { hasS = true; e.successLine = l; } } }
+        if (CONFIG.failure_patterns) for (const fp of CONFIG.failure_patterns) { try { if (new RegExp(fp).test(l)) { hasF = true; e.failLines.push(l); } } catch { if (l.includes(fp)) { hasF = true; e.failLines.push(l); } } }
     }
 
     if (CONFIG && CONFIG.enable_result_judgment === false) {
@@ -1192,8 +1198,9 @@ function parseBlock(lines, lineNumbers = []) {
         const ml = [];
         for (const l of lines) {
             for (const p of gC.patterns) {
+                const ps = typeof p === 'string' ? p : (p && p.pattern) || '';
                 try {
-                    if (new RegExp(p).test(l)) {
+                    if (ps && new RegExp(ps).test(l)) {
                         ml.push(l);
                         break;
                     }
@@ -1267,7 +1274,8 @@ function updateProgress(processed, total, found, matched) {
     document.getElementById('progFound').textContent = found;
     document.getElementById('progMatched').textContent = matched;
     if (streamingMode) {
-        renderTable();
+        clearTimeout(window._streamRenderTimer);
+        window._streamRenderTimer = setTimeout(() => { renderTable(); updateLiveSeqView(); }, 500);
     }
 }
 
@@ -1357,17 +1365,23 @@ function extractLogDisplay(line, colKey) {
     // For successLine, show only from the matched success pattern onwards
     if (colKey === 'successLine' && CONFIG && CONFIG.success_patterns) {
         for (const sp of CONFIG.success_patterns) {
-            const idx = line.indexOf(sp);
-            if (idx >= 0) return line.substring(idx).trim();
+            try {
+                const m = new RegExp(sp).exec(line);
+                if (m) return (m[1] !== undefined ? m[1] : line.substring(m.index)).trim();
+            } catch {
+                const idx = line.indexOf(sp);
+                if (idx >= 0) return line.substring(idx).trim();
+            }
         }
     }
     const arrowIdx = line.lastIndexOf('> ');
     const payload = arrowIdx >= 0 ? line.substring(arrowIdx + 2).trim() : line.trim();
     if (CONFIG.pattern_groups && CONFIG.pattern_groups[colKey]) {
         for (const p of CONFIG.pattern_groups[colKey].patterns) {
+            const ps = typeof p === 'string' ? p : (p && p.pattern) || '';
             try {
-                if (new RegExp(p).test(payload)) {
-                    const litMatch = p.match(/^([A-Za-z0-9_ ]+)/);
+                if (ps && new RegExp(ps).test(payload)) {
+                    const litMatch = ps.match(/^([A-Za-z0-9_ ]+)/);
                     const prefix = litMatch ? litMatch[1].trim() : '';
                     if (prefix && payload.toLowerCase().startsWith(prefix.toLowerCase())) {
                         return payload.substring(prefix.length).trim() || payload;
@@ -1524,7 +1538,16 @@ function renderTable() {
         for (const [col, filter] of Object.entries(columnFilters)) {
             if (!filter) continue;
             const val = (e[col] || '').toString().toLowerCase();
-            if (!val.includes(filter)) return false;
+            if (filter === 'n/a') {
+                if (e[col]) return false;
+            } else if (filter === '!n/a') {
+                if (!e[col]) return false;
+            } else if (filter.startsWith('!')) {
+                const notTerm = filter.slice(1);
+                if (notTerm && val.includes(notTerm)) return false;
+            } else {
+                if (!val.includes(filter)) return false;
+            }
         }
         return true;
     });
@@ -1562,8 +1585,7 @@ function renderTable() {
     document.getElementById('tableBody').innerHTML = displayRows.map((e, i) => {
         const cells = cols.map(c => {
             const v = e[c.key];
-            const sanitizedV = sanitizeCtrl(String(v || ''));
-            const copyBtn = `<button class="copy-btn" title="Copy" onclick="handleCopyClick(event, '${sanitizedV.replace(/'/g, "\\\\'")}')">📋</button>`;
+            const copyBtn = `<button class="copy-btn" title="Copy" data-copy="${String(v||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}" onclick="handleCopyClick(event, this.getAttribute('data-copy'))">📋</button>`;
 
             if (c.type === 'badge') return `<div class="td"><span class="badge badge-${v}">${v}</span></div>`;
             if (c.type === 'utterance') return `<div class="td"><span class="utt-link" title="Click to detail">${esc(v)}</span>${copyBtn}</div>`;
@@ -1571,8 +1593,7 @@ function renderTable() {
                 const display = extractLogDisplay(v, c.key);
                 const lineIdx = e.allLines ? e.allLines.indexOf(v) : -1;
                 const lineNum = (lineIdx >= 0 && e.lineNumbers) ? e.lineNumbers[lineIdx] : '';
-                const sanitizedDisplay = sanitizeCtrl(String(display || ''));
-                const copyBtnLog = `<button class="copy-btn" title="Copy" onclick="handleCopyClick(event, '${sanitizedDisplay.replace(/'/g, "\\\\'")}')">📋</button>`;
+                const copyBtnLog = `<button class="copy-btn" title="Copy" data-copy="${String(display||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}" onclick="handleCopyClick(event, this.getAttribute('data-copy'))">📋</button>`;
 
                 return `<div class="td" title="${esc(v)}"><span>${esc(display)}${lineNum ? ` <span style="color:#334155;font-size:10px">[L${lineNum}]</span>` : ''}</span>${copyBtnLog}</div>`;
             }
@@ -1592,7 +1613,8 @@ function renderTable() {
             }
             return `<div class="td"><span>${esc(v)}</span>${copyBtn}</div>`;
         }).join('');
-        return `<div class="tr" style="grid-template-columns:${gridCols};animation-delay:${Math.min(i * 0.015, 0.4)}s" onclick="openDetailFromTable(${i})">${cells}</div>`;
+        const entIdx = entries.indexOf(e);
+        return `<div class="tr" style="grid-template-columns:${gridCols};animation-delay:${Math.min(i * 0.015, 0.4)}s" onclick="openDetailFromTable(${entIdx})">${cells}</div>`;
     }).join('');
 }
 
@@ -1791,9 +1813,10 @@ function toggleLiveStream() {
         document.getElementById('progressPanel').style.display = 'none';
         document.getElementById('resultsArea').style.display = 'block';
         
-        // Show live log viewer
+        // Show live log viewer, reset to table mode
         document.getElementById('rawLogViewer').style.display = 'block';
         document.getElementById('rawLogContent').textContent = '';
+        setLiveViewMode('table');
         updateDefaultCommands(); // Update commands now that the view is visible
         document.getElementById('screenshotSection').style.display = 'block';
 
@@ -1821,6 +1844,31 @@ function toggleLiveStream() {
         finishParsing();
         document.getElementById('progressPanel').style.display = 'block';
     }
+}
+
+function clearLiveLog() {
+    // Reset raw log viewer
+    rawLogLines = [];
+    document.getElementById('rawLogContent').textContent = '';
+
+    // Reset parsed entries and table
+    entries = [];
+    renderTable();
+
+    // Reset streaming state so next start_pattern begins fresh
+    streamBlockBuffer = [];
+    streamBlockLineNumbers = [];
+    streamInBlock = false;
+    streamFoundCount = 0;
+    streamMatchedCount = 0;
+    const liveSeqContent = document.getElementById('liveSeqContent');
+    if (liveSeqContent) liveSeqContent.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center">No entries yet. Start live log to see sequence diagram...</div>';
+
+    // Reset progress counters
+    const el1 = document.getElementById('progFound');
+    const el2 = document.getElementById('progMatched');
+    if (el1) el1.textContent = '0';
+    if (el2) el2.textContent = '0';
 }
 
 async function selectScreenshotFolder() {
@@ -1936,7 +1984,7 @@ function getAllPatterns(config) {
     if (config.pattern_groups) {
         Object.values(config.pattern_groups).forEach(g => {
             if (g.patterns) {
-                g.patterns.forEach(p => patterns.add(p));
+                g.patterns.forEach(p => patterns.add(typeof p === 'string' ? p : (p && p.pattern) || ''));
             }
         });
     }
@@ -1951,10 +1999,277 @@ function getAllPatterns(config) {
     }).filter(Boolean);
 }
 
+// ── Live View Mode ──
+function setLiveViewMode(mode) {
+    liveViewMode = mode;
+    const tableBtn = document.getElementById('liveModeBtnTable');
+    const seqBtn = document.getElementById('liveModeBtnSeq');
+    const tableControls = document.getElementById('tableControlsArea');
+    const tableWrap = document.getElementById('tableWrap');
+    const seqView = document.getElementById('liveSeqView');
+    if (mode === 'table') {
+        if (tableBtn) tableBtn.classList.add('active');
+        if (seqBtn) seqBtn.classList.remove('active');
+        if (tableControls) tableControls.style.display = '';
+        if (tableWrap) tableWrap.style.display = '';
+        if (seqView) seqView.style.display = 'none';
+    } else {
+        if (tableBtn) tableBtn.classList.remove('active');
+        if (seqBtn) seqBtn.classList.add('active');
+        if (tableControls) tableControls.style.display = 'none';
+        if (tableWrap) tableWrap.style.display = 'none';
+        if (seqView) seqView.style.display = 'block';
+        updateLiveSeqView();
+    }
+}
+
+function generateCombinedPlantUML(allEntries) {
+    if (!allEntries || allEntries.length === 0) return '@startuml\n@enduml';
+    const allLines = [];
+    allEntries.forEach((entry, i) => {
+        const puml = generatePlantUMLForEntry(entry);
+        const lines = puml.split('\n').filter(l => l !== '@startuml' && l !== '@enduml' && !l.startsWith('title '));
+        if (lines.some(l => l.trim())) {
+            allLines.push(`== #${i + 1}: ${entry.utterance || '?'} ==`);
+            allLines.push(...lines);
+        }
+    });
+    if (!allLines.length) return '@startuml\n@enduml';
+    return ['@startuml', ...allLines, '@enduml'].join('\n');
+}
+
+function updateLiveSeqView() {
+    if (liveViewMode !== 'sequence') return;
+    const seqContent = document.getElementById('liveSeqContent');
+    if (!seqContent) return;
+    if (!entries || entries.length === 0) {
+        seqContent.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center">No entries yet. Start live log to see sequence diagram...</div>';
+        return;
+    }
+    const puml = generateCombinedPlantUML(entries);
+    seqContent.innerHTML = renderSeqSVGMain(puml);
+}
+
+function renderSeqSVGMain(src) {
+    const lines = src.split(/[\r\n]+/).map(l => l.trim()).filter(l => l && l !== '@startuml' && l !== '@enduml');
+    let title = '', pOrd = [], pSet = new Set(), msgs = [];
+    for (const l of lines) {
+        if (l.startsWith('title ')) { title = l.slice(6).trim(); continue; }
+        const sm = l.match(/^==\s*(.*?)\s*==$/);
+        if (sm) { msgs.push({ type: 'sep', lb: sm[1].trim(), dashed: false }); continue; }
+        if (/-\[hidden\]/i.test(l)) { const hm = l.match(/^(\S+)\s+.*?\s+(\S+)\s*$/); if (hm) { const hf = hm[1], ht = hm[2]; if (!pSet.has(hf)) { pSet.add(hf); pOrd.push(hf); } if (!pSet.has(ht)) { pSet.add(ht); pOrd.push(ht); } } continue; }
+        const nm = l.match(/^note\s+(right|left|over)\s*([^:]*)\s*:\s*(.*)$/i);
+        if (nm) { const nPos = nm[1].toLowerCase(); const nParts = nm[2].trim() ? nm[2].split(',').map(p => p.trim()).filter(Boolean) : []; const noteLb = nm[3].trim().replace(/\r/g, ''); msgs.push({ type: 'note', pos: nPos, parts: nParts, lb: noteLb, dashed: false }); continue; }
+        let f, t, lb, dashed = false;
+        const rm = l.match(/^(\S+)\s*(-+>>?[ox]?|[ox]?-+>>?[ox]?)\s+([^:\s]+)\s*:\s*(.*)$/);
+        if (rm) { f = rm[1].trim().replace(/\r/g,''); t = rm[3].trim().replace(/\r/g,''); lb = rm[4].trim().replace(/\r/g,''); dashed = rm[2].includes('--'); }
+        else { const lm = l.match(/^(\S+)\s*(<<?-+[<]?)\s+([^:\s]+)\s*:\s*(.*)$/); if (lm) { f = lm[3].trim().replace(/\r/g,''); t = lm[1].trim().replace(/\r/g,''); lb = lm[4].trim().replace(/\r/g,''); dashed = lm[2].includes('--'); } else { const om = l.match(/^(\S+)\s*-(.*)->\s*(\S+)$/); if (om) { f = om[1].trim().replace(/\r/g,''); lb = om[2].trim().replace(/\r/g,''); t = om[3].trim().replace(/\r/g,''); } } }
+        if (f && t) { if (!pSet.has(f)) { pSet.add(f); pOrd.push(f); } if (!pSet.has(t)) { pSet.add(t); pOrd.push(t); } msgs.push({ f, t, lb: lb || '', dashed }); }
+    }
+    if (!pOrd.length) return '<div style="color:#64748b;font-size:12px;padding:16px;text-align:center">No sequence arrows found.</div>';
+    const ev = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    // Find clickable URL for text matching any configured clickable_pattern
+    const cpUrlFor = text => {
+        const pats = CONFIG && CONFIG.clickable_patterns;
+        if (!pats) return null;
+        for (const [, cfg] of Object.entries(pats)) {
+            try {
+                const m = new RegExp(cfg.pattern).exec(String(text || ''));
+                if (m) {
+                    const val = m[1] !== undefined ? m[1] : m[0];
+                    const url = (cfg.url_template1 || cfg.url_template || '').replace('{value}', val);
+                    if (url) return url;
+                }
+            } catch {}
+        }
+        return null;
+    };
+    const safeUrl = url => url.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+    const PAD = 24, PW = 150, PH = 34, BASE_MH = 36, SEP_H = 22, FONT = 11, NOTE_MAX = 80, LH = 13, FK = 8;
+    const visW = s => { let w = 0; for (let i = 0; i < (s || '').length; i++) { const c = (s || '').charCodeAt(i); w += (c >= 0xAC00 && c <= 0xD7AF || c >= 0x1100 && c <= 0x11FF || c >= 0x4E00 && c <= 0x9FFF) ? 2 : 1; } return w; };
+    const wL = (lb, max) => { if (!lb || visW(lb) <= max) return [lb || '']; const r = []; let st = lb; while (visW(st) > max) { let w = 0, idx = 0; while (idx < st.length) { const c = st.charCodeAt(idx); const cw = (c >= 0xAC00 && c <= 0xD7AF || c >= 0x1100 && c <= 0x11FF || c >= 0x4E00 && c <= 0x9FFF) ? 2 : 1; if (w + cw > max) break; w += cw; idx++; } r.push(st.slice(0, idx)); st = st.slice(idx); } r.push(st); return r; };
+    const mLines = msgs.map(m => m.type === 'note' ? wL(m.lb, NOTE_MAX) : [m.lb || '']);
+    const rH = mLines.map((ls, i) => msgs[i].type === 'sep' ? SEP_H : msgs[i].type === 'note' ? 15 + (ls.length - 1) * LH + 15 + 20 : BASE_MH + (ls.length - 1) * LH);
+    const totMH = rH.reduce((a, b) => a + b, 0);
+    const arrowLns = msgs.flatMap((m, i) => (m.type === 'note' || m.type === 'sep') ? [] : mLines[i]);
+    const maxChunk = Math.max(10, ...(arrowLns.length ? arrowLns.map(l => l.length) : [10]));
+    const GAP = Math.max(220, Math.round(maxChunk * 6.5) + 60);
+    const N = pOrd.length;
+    const cx = {}; pOrd.forEach((p, i) => { cx[p] = PAD + PW / 2 + i * GAP; });
+    msgs.forEach((msg, i) => {
+        if (msg.type !== 'note') return;
+        const wls = mLines[i];
+        const maxNL = Math.max(10, ...wls.map(l => visW(l)));
+        const NW = Math.max(100, Math.round(maxNL * 6.5) + 52);
+        const NH = 15 + (wls.length - 1) * LH + 15;
+        let nx = 0, nw = NW;
+        if (msg.pos === 'right') { nx = Math.max(...pOrd.map(p => cx[p])) + PW / 2 + 10; }
+        else if (msg.pos === 'left') { nx = Math.min(...pOrd.map(p => cx[p])) - PW / 2 - NW - 10; }
+        else { if (msg.parts.length >= 2) { const x1 = cx[msg.parts[0]] != null ? cx[msg.parts[0]] : cx[pOrd[0]]; const x2 = cx[msg.parts[1]] != null ? cx[msg.parts[1]] : cx[pOrd[N - 1]]; nx = Math.min(x1, x2) - PW / 2; nw = Math.max(NW, Math.abs(x2 - x1) + PW); } else { const px = msg.parts[0] && cx[msg.parts[0]] != null ? cx[msg.parts[0]] : cx[pOrd[Math.floor((N - 1) / 2)]]; nx = px - NW / 2; } }
+        msg._nx = nx; msg._nw = nw; msg._nh = NH;
+    });
+    let xShift = 0;
+    msgs.forEach(msg => { if (msg.type === 'note' && msg._nx < PAD) xShift = Math.max(xShift, PAD - msg._nx); });
+    if (xShift > 0) { pOrd.forEach(p => { cx[p] += xShift; }); msgs.forEach(msg => { if (msg.type === 'note') msg._nx += xShift; }); }
+    const baseW = PAD * 2 + (N - 1) * GAP + PW + xShift;
+    let extraW = 0;
+    msgs.forEach(msg => { if (msg.type === 'note') extraW = Math.max(extraW, msg._nx + msg._nw - (baseW - PAD)); });
+    const W = baseW + Math.max(0, extraW);
+    const SEQ_GAP = 14;
+    const tH = title ? 40 : 0, H = tH + PAD / 2 + PH + SEQ_GAP + totMH + SEQ_GAP + PH + PAD / 2;
+    let s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" style="display:block;min-width:' + W + 'px">';
+    s += '<rect width="' + W + '" height="' + H + '" fill="#0a0d14"/>';
+    if (title) s += '<text x="' + (W / 2) + '" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#e2e8f0" font-family="Segoe UI,system-ui,sans-serif">' + ev(title) + '</text>';
+    const topY = tH + PAD / 2;
+    pOrd.forEach(p => { const x = cx[p] - PW / 2; s += '<rect x="' + x + '" y="' + topY + '" width="' + PW + '" height="' + PH + '" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="' + cx[p] + '" y="' + (topY + PH / 2 + 5) + '" text-anchor="middle" font-size="' + (FONT + 1) + '" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">' + ev(p) + '</text>'; });
+    const llStart = topY + PH, llY1 = llStart + SEQ_GAP, llY2 = llY1 + totMH, botY = llY2 + SEQ_GAP;
+    pOrd.forEach(p => { s += '<line x1="' + cx[p] + '" y1="' + llStart + '" x2="' + cx[p] + '" y2="' + botY + '" stroke="#1e2433" stroke-width="1.5" stroke-dasharray="6,4"/>'; });
+    let cumY = llY1;
+    msgs.forEach((msg, i) => {
+        const rh = rH[i], wls = mLines[i], tl = wls.length;
+        const yArr = cumY + rh * 0.5; cumY += rh;
+        if (msg.type === 'sep') {
+            const sy = yArr;
+            s += '<line x1="' + PAD + '" y1="' + sy + '" x2="' + (W - PAD) + '" y2="' + sy + '" stroke="#2a3a5c" stroke-width="1.5" stroke-dasharray="4,2"/>';
+            if (msg.lb) { const tw = Math.round(msg.lb.length * 7) + 20; s += '<rect x="' + (W / 2 - tw / 2 - 4) + '" y="' + (sy - 9) + '" width="' + (tw + 8) + '" height="18" fill="#0a0d14"/>'; s += '<text x="' + (W / 2) + '" y="' + (sy + 4) + '" text-anchor="middle" font-size="' + FONT + '" fill="#94a3b8" font-family="Segoe UI,system-ui,sans-serif">' + ev(msg.lb) + '</text>'; }
+        } else if (msg.type === 'note') {
+            const nx = msg._nx, NW = msg._nw, NH = msg._nh, ny = msg.pos === 'over' ? yArr - NH / 2 : yArr - (rh + BASE_MH) / 2;
+            const tx = nx + 12, ty0 = ny + 15;
+            const noteUrl = wls.reduce((u, ln) => u || cpUrlFor(ln), null);
+            const noteStroke = noteUrl ? '#a78bfa' : '#fbbf24';
+            const noteOnClick = noteUrl ? ' onclick="openURLExternal(\'' + safeUrl(noteUrl) + '\')" style="cursor:pointer"' : '';
+            s += '<polygon' + noteOnClick + ' points="' + nx + ',' + ny + ' ' + (nx + NW - FK) + ',' + ny + ' ' + (nx + NW) + ',' + (ny + FK) + ' ' + (nx + NW) + ',' + (ny + NH) + ' ' + nx + ',' + (ny + NH) + '" fill="#1a2010" stroke="' + noteStroke + '" stroke-width="1.5"/>';
+            s += '<polygon points="' + (nx + NW - FK) + ',' + ny + ' ' + (nx + NW) + ',' + (ny + FK) + ' ' + (nx + NW - FK) + ',' + (ny + FK) + '" fill="#4a3800" stroke="' + noteStroke + '" stroke-width="1"/>';
+            s += '<text text-anchor="start" font-size="' + FONT + '" fill="#e2e8f0" font-family="Consolas,monospace">';
+            wls.forEach((ln, li) => { s += '<tspan x="' + tx + '" y="' + (ty0 + li * LH) + '">' + ev(ln) + '</tspan>'; });
+            s += '</text>';
+            const _cp = JSON.stringify(msg.lb).replace(/"/g, '&quot;');
+            s += '<g onclick="(function(e){e.stopPropagation();navigator.clipboard.writeText(' + _cp + ').catch(function(){})})(event)" style="cursor:pointer"><rect x="' + (nx + NW - 30) + '" y="' + (ny + 4) + '" width="16" height="12" rx="2" fill="rgba(251,191,36,0.15)" stroke="rgba(251,191,36,0.4)" stroke-width="1"/><text x="' + (nx + NW - 22) + '" y="' + (ny + 13) + '" text-anchor="middle" font-size="9" fill="#fbbf24" font-family="sans-serif">&#x29C9;</text></g>';
+        } else {
+            const x1 = cx[msg.f] != null ? cx[msg.f] : PAD + PW / 2, x2 = cx[msg.t] != null ? cx[msg.t] : PAD + PW / 2;
+            const clr = msg.dashed ? '#7dd3a8' : '#60dcfa';
+            const da = msg.dashed ? ' stroke-dasharray="6,4"' : '';
+            const arrowUrl = cpUrlFor(msg.lb);
+            const arrowOnClick = arrowUrl ? ' onclick="openURLExternal(\'' + safeUrl(arrowUrl) + '\')" style="cursor:pointer"' : '';
+            if (msg.f === msg.t) {
+                const rx = x1 + 58;
+                s += '<path d="M' + x1 + ',' + (yArr - 14) + ' C' + rx + ',' + (yArr - 14) + ' ' + rx + ',' + (yArr + 14) + ' ' + x1 + ',' + (yArr + 14) + '" fill="none" stroke="#a78bfa" stroke-width="1.5"' + da + '/>';
+                s += '<polygon points="' + x1 + ',' + (yArr + 14) + ' ' + (x1 - 6) + ',' + (yArr + 6) + ' ' + (x1 + 6) + ',' + (yArr + 6) + '" fill="#a78bfa"/>';
+                const ty0s = yArr - (tl - 1) * LH / 2;
+                s += '<text' + arrowOnClick + ' font-size="' + FONT + '" fill="#a78bfa" font-family="Consolas,monospace">';
+                wls.forEach((ln, li) => { s += '<tspan x="' + (rx + 6) + '" y="' + (ty0s + li * LH) + '">' + ev(ln) + '</tspan>'; });
+                s += '</text>';
+            } else {
+                const d = x2 > x1 ? 1 : -1;
+                s += '<line x1="' + x1 + '" y1="' + yArr + '" x2="' + x2 + '" y2="' + yArr + '" stroke="' + clr + '" stroke-width="1.5"' + da + '/>';
+                s += '<polygon points="' + x2 + ',' + yArr + ' ' + (x2 - d * 10) + ',' + (yArr - 5) + ' ' + (x2 - d * 10) + ',' + (yArr + 5) + '" fill="' + clr + '"/>';
+                const midX = (x1 + x2) / 2, ty0 = yArr - tl * LH;
+                s += '<text' + arrowOnClick + ' text-anchor="middle" font-size="' + FONT + '" fill="#e2e8f0" font-family="Consolas,monospace">';
+                wls.forEach((ln, li) => { s += '<tspan x="' + midX + '" y="' + (ty0 + li * LH) + '">' + ev(ln) + '</tspan>'; });
+                s += '</text>';
+            }
+        }
+    });
+    pOrd.forEach(p => { const x = cx[p] - PW / 2; s += '<rect x="' + x + '" y="' + botY + '" width="' + PW + '" height="' + PH + '" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="' + cx[p] + '" y="' + (botY + PH / 2 + 5) + '" text-anchor="middle" font-size="' + (FONT + 1) + '" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">' + ev(p) + '</text>'; });
+    s += '</svg>';
+    return s;
+}
+
+// ── Sequence Diagram ──
+function generatePlantUMLForEntry(entry) {
+    const lines = entry.allLines || [];
+    const plantItems = [];
+
+    function extractValue(line, match) {
+        if (match && match[1]) return match[1].trim();
+        if (match && match.index !== undefined) return line.substring(match.index).trim();
+        return line.trim();
+    }
+
+    // Normalize PlantUML field: accepts string or array of strings
+    function pumlTemplates(puml) {
+        if (!puml) return [];
+        return Array.isArray(puml) ? puml : [puml];
+    }
+    // Normalize pattern entry: accepts string or {pattern, PlantUML?} object
+    function patStr(p) { return typeof p === 'string' ? p : (p && p.pattern) || ''; }
+    // Apply template substitution + line number prefix at start of label (after last ': ')
+    function applyPuml(tmpl, value, lineNum) {
+        // Strip \r, \n and other control chars from value — they break PlantUML line structure
+        // and cause \r to act as carriage-return in SVG text, overwriting rendered content
+        const safeValue = String(value || '').replace(/[\r\n]/g, ' ').replace(/\s+/g, ' ').trim();
+        const isTitle = tmpl.trimStart().startsWith('title');
+        if (isTitle || !tmpl.includes('{value}')) return tmpl.replace('{value}', safeValue);
+        const colonIdx = tmpl.lastIndexOf(': ');
+        const labelTmpl = colonIdx >= 0 ? tmpl.substring(colonIdx + 2) : tmpl;
+        const labelStr = `L${lineNum}: ${labelTmpl.replace('{value}', safeValue)}`;
+        return colonIdx >= 0 ? tmpl.substring(0, colonIdx + 2) + labelStr : labelStr;
+    }
+
+    for (let li = 0; li < lines.length; li++) {
+        const line = lines[li];
+        const lineNum = (entry.lineNumbers && entry.lineNumbers[li]) ? entry.lineNumbers[li] : (li + 1);
+
+        // utterance_patterns
+        for (const [, cfg] of Object.entries(CONFIG.utterance_patterns || {})) {
+            if (!cfg.PlantUML) continue;
+            try {
+                const m = line.match(new RegExp(cfg.pattern));
+                if (m) {
+                    const value = extractValue(line, m);
+                    for (const tmpl of pumlTemplates(cfg.PlantUML)) {
+                        const isTitle = tmpl.trimStart().startsWith('title');
+                        plantItems.push({ text: applyPuml(tmpl, value, lineNum), isTitle });
+                    }
+                }
+            } catch {}
+        }
+
+        // clickable_patterns
+        for (const [, cfg] of Object.entries(CONFIG.clickable_patterns || {})) {
+            if (!cfg.PlantUML) continue;
+            try {
+                const m = line.match(new RegExp(cfg.pattern));
+                if (m) {
+                    const value = extractValue(line, m);
+                    for (const tmpl of pumlTemplates(cfg.PlantUML)) {
+                        plantItems.push({ text: applyPuml(tmpl, value, lineNum), isTitle: false });
+                    }
+                }
+            } catch {}
+        }
+
+        // pattern_groups — patterns can be strings or {pattern, PlantUML?} objects
+        for (const [, grpCfg] of Object.entries(CONFIG.pattern_groups || {})) {
+            for (const pEntry of (grpCfg.patterns || [])) {
+                const ps = patStr(pEntry);
+                if (!ps) continue;
+                const entryPuml = (typeof pEntry === 'object' && pEntry.PlantUML) ? pEntry.PlantUML : grpCfg.PlantUML;
+                if (!entryPuml) continue;
+                try {
+                    const m = line.match(new RegExp(ps));
+                    if (m) {
+                        const value = extractValue(line, m);
+                        for (const tmpl of pumlTemplates(entryPuml)) {
+                            plantItems.push({ text: applyPuml(tmpl, value, lineNum), isTitle: false });
+                        }
+                        break; // one match per group per line
+                    }
+                } catch {}
+            }
+        }
+    }
+
+    const titles = plantItems.filter(p => p.isTitle).map(p => p.text);
+    const nonTitles = plantItems.filter(p => !p.isTitle).map(p => p.text);
+
+    return ['@startuml', ...titles, ...nonTitles, '@enduml'].join('\n');
+}
+
 async function openDetailFromTable(idx) {
-    const e = filteredData[idx];
+    const e = entries[idx];
     if (!e) return;
-    const utteranceIndex = entries.indexOf(e) + 1 || idx + 1;
+    const utteranceIndex = idx + 1;
 
     // Fallback to modal if not in Electron
     if (!window.electronAPI || !window.electronAPI.openDetailHtml) {
@@ -2088,13 +2403,171 @@ function mkC(t){if(!t)return esc(t);let r=esc(t);for(const[,c]of Object.entries(
 
     const ver = APP_VERSION ? `[${APP_VERSION}]` : '';
 
+    // ── Sequence Diagram (local SVG renderer, no external requests) ──
+    const pumlText = generatePlantUMLForEntry(e);
+    const seqScript = `const seqPuml=${JSON.stringify(pumlText)};
+let seqOpen=false;
+function toggleSeq(){
+  seqOpen=!seqOpen;
+  const sec=document.getElementById('seqSection');
+  const btn=document.getElementById('seqBtn');
+  if(seqOpen){
+    sec.style.display='block';
+    btn.style.color='#a78bfa';btn.style.borderColor='rgba(167,139,250,0.5)';btn.style.background='linear-gradient(135deg,#1e1640,#1e1e40)';
+    updateSeq();
+    setTimeout(()=>sec.scrollIntoView({behavior:'smooth',block:'start'}),50);
+  }else{sec.style.display='none';btn.style.color='';btn.style.borderColor='';btn.style.background=''}
+}
+function toggleSeqSrc(){const ta=document.getElementById('seqPumlTxt');const btn=document.getElementById('seqSrcBtn');const vis=ta.style.display!=='none';ta.style.display=vis?'none':'block';btn.style.color=vis?'':'#a78bfa';btn.style.borderColor=vis?'':'rgba(167,139,250,0.4)'}
+function scheduleSeq(){clearTimeout(window._st);window._st=setTimeout(updateSeq,600)}
+function updateSeq(){const txt=document.getElementById('seqPumlTxt').value;document.getElementById('seqSvgWrap').innerHTML=renderSeqSVG(txt)}
+function copySeqPuml(){const t=document.getElementById('seqPumlTxt').value;navigator.clipboard.writeText(t).then(()=>{const b=document.getElementById('seqCopyBtn');const o=b.textContent;b.textContent='\\u2713 Copied!';setTimeout(()=>b.textContent=o,1500)}).catch(()=>{const ta=document.createElement('textarea');ta.value=t;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta)})}
+function renderSeqSVG(src){
+  const lines=src.split(/[\\r\\n]+/).map(l=>l.trim()).filter(l=>l&&l!=='@startuml'&&l!=='@enduml');
+  let title='',pOrd=[],pSet=new Set(),msgs=[];
+  for(const l of lines){
+    if(l.startsWith('title ')){title=l.slice(6).trim();continue}
+    // Separator: == text ==
+    const sm=l.match(/^==\\s*(.*?)\\s*==$/);
+    if(sm){msgs.push({type:'sep',lb:sm[1].trim(),dashed:false});continue}
+    // Hidden arrow: -[hidden]- registers participants but is not drawn
+    if(/-\[hidden\]/i.test(l)){const hm=l.match(/^(\\S+)\\s+.*?\\s+(\\S+)\\s*$/);if(hm){const hf=hm[1],ht=hm[2];if(!pSet.has(hf)){pSet.add(hf);pOrd.push(hf)}if(!pSet.has(ht)){pSet.add(ht);pOrd.push(ht)}}continue}
+    // Note lines: "note right: text", "note left: text", "note over P: text", "note over P,Q: text"
+    const nm=l.match(/^note\\s+(right|left|over)\\s*([^:]*)\\s*:\\s*(.*)$/i);
+    if(nm){
+      const nPos=nm[1].toLowerCase();
+      const nParts=nm[2].trim()?nm[2].split(',').map(p=>p.trim()).filter(Boolean):[];
+      msgs.push({type:'note',pos:nPos,parts:nParts,lb:nm[3].trim(),dashed:false});
+      continue;
+    }
+    let f,t,lb,dashed=false;
+    // Right arrows: A->B, A->>B, A-->B, A-->>B, A->oB, A->xB
+    const rm=l.match(/^(\\S+)\\s*(-+>>?[ox]?|[ox]?-+>>?[ox]?)\\s+([^:\\s]+)\\s*:\\s*(.*)$/);
+    if(rm){f=rm[1].trim();t=rm[3].trim();lb=rm[4].trim();dashed=rm[2].includes('--')}
+    else{
+      // Left arrows: A<-B, A<<-B, A<--B, A<<--B (swap direction)
+      const lm=l.match(/^(\\S+)\\s*(<<?-+[<]?)\\s+([^:\\s]+)\\s*:\\s*(.*)$/);
+      if(lm){f=lm[3].trim();t=lm[1].trim();lb=lm[4].trim();dashed=lm[2].includes('--')}
+      else{
+        // Old custom format: A -{label}-> B
+        const om=l.match(/^(\\S+)\\s*-(.*)->\\s*(\\S+)$/);
+        if(om){f=om[1].trim();lb=om[2].trim();t=om[3].trim()}
+      }
+    }
+    if(f&&t){if(!pSet.has(f)){pSet.add(f);pOrd.push(f)}if(!pSet.has(t)){pSet.add(t);pOrd.push(t)}msgs.push({f,t,lb:lb||'',dashed})}
+  }
+  if(!pOrd.length)return '<div style="color:#64748b;font-size:12px;padding:16px;text-align:center">No sequence arrows found in PlantUML source.</div>';
+  const ev=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  const PAD=24,PW=150,PH=34,BASE_MH=36,SEP_H=22,FONT=11,NOTE_MAX=80,LH=13,FK=8;
+  const visW=s=>{let w=0;for(let i=0;i<(s||'').length;i++){const c=(s||'').charCodeAt(i);w+=(c>=0xAC00&&c<=0xD7AF||c>=0x1100&&c<=0x11FF||c>=0x4E00&&c<=0x9FFF)?2:1;}return w};
+  const wL=(lb,max)=>{if(!lb||visW(lb)<=max)return[lb||''];const r=[];let st=lb;while(visW(st)>max){let w=0,idx=0;while(idx<st.length){const c=st.charCodeAt(idx);const cw=(c>=0xAC00&&c<=0xD7AF||c>=0x1100&&c<=0x11FF||c>=0x4E00&&c<=0x9FFF)?2:1;if(w+cw>max)break;w+=cw;idx++;}r.push(st.slice(0,idx));st=st.slice(idx);}r.push(st);return r};
+  // Arrow labels: no wrapping. Notes: wrap at NOTE_MAX. Separators: single label.
+  const mLines=msgs.map(m=>m.type==='note'?wL(m.lb,NOTE_MAX):[m.lb||'']);
+  const rH=mLines.map((ls,i)=>msgs[i].type==='sep'?SEP_H:msgs[i].type==='note'?15+(ls.length-1)*LH+15+20:BASE_MH+(ls.length-1)*LH);
+  const totMH=rH.reduce((a,b)=>a+b,0);
+  // GAP based on arrow labels only (notes/separators don't affect participant spacing)
+  const arrowLns=msgs.flatMap((m,i)=>(m.type==='note'||m.type==='sep')?[]:mLines[i]);
+  const maxChunk=Math.max(10,...(arrowLns.length?arrowLns.map(l=>l.length):[10]));
+  const GAP=Math.max(220,Math.round(maxChunk*6.5)+60);
+  const N=pOrd.length;
+  const cx={};pOrd.forEach((p,i)=>{cx[p]=PAD+PW/2+i*GAP});
+  // Pre-compute note box dimensions and positions
+  msgs.forEach((msg,i)=>{
+    if(msg.type!=='note')return;
+    const wls=mLines[i];
+    const maxNL=Math.max(10,...wls.map(l=>visW(l)));
+    const NW=Math.max(100,Math.round(maxNL*6.5)+52);
+    const NH=15+(wls.length-1)*LH+15;
+    let nx=0,nw=NW;
+    if(msg.pos==='right'){
+      nx=Math.max(...pOrd.map(p=>cx[p]))+PW/2+10;
+    }else if(msg.pos==='left'){
+      nx=Math.min(...pOrd.map(p=>cx[p]))-PW/2-NW-10;
+    }else{ // 'over'
+      if(msg.parts.length>=2){
+        const x1=cx[msg.parts[0]]!=null?cx[msg.parts[0]]:cx[pOrd[0]];
+        const x2=cx[msg.parts[1]]!=null?cx[msg.parts[1]]:cx[pOrd[N-1]];
+        nx=Math.min(x1,x2)-PW/2;
+        nw=Math.max(NW,Math.abs(x2-x1)+PW);
+      }else{
+        const px=msg.parts[0]&&cx[msg.parts[0]]!=null?cx[msg.parts[0]]:cx[pOrd[Math.floor((N-1)/2)]];
+        nx=px-NW/2;
+      }
+    }
+    msg._nx=nx;msg._nw=nw;msg._nh=NH;
+  });
+  // Shift diagram right if any note overflows left
+  let xShift=0;
+  msgs.forEach(msg=>{if(msg.type==='note'&&msg._nx<PAD)xShift=Math.max(xShift,PAD-msg._nx)});
+  if(xShift>0){pOrd.forEach(p=>{cx[p]+=xShift});msgs.forEach(msg=>{if(msg.type==='note')msg._nx+=xShift})}
+  // Expand SVG width if any note overflows right
+  const baseW=PAD*2+(N-1)*GAP+PW+xShift;
+  let extraW=0;
+  msgs.forEach(msg=>{if(msg.type==='note')extraW=Math.max(extraW,msg._nx+msg._nw-(baseW-PAD))});
+  const W=baseW+Math.max(0,extraW);
+  const SEQ_GAP=14;
+  const tH=title?40:0,H=tH+PAD/2+PH+SEQ_GAP+totMH+SEQ_GAP+PH+PAD/2;
+  let s='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" style="display:block;min-width:'+W+'px">';
+  s+='<rect width="'+W+'" height="'+H+'" fill="#0a0d14"/>';
+  if(title)s+='<text x="'+(W/2)+'" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#e2e8f0" font-family="Segoe UI,system-ui,sans-serif">'+ev(title)+'</text>';
+  const topY=tH+PAD/2;
+  pOrd.forEach(p=>{const x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+topY+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(topY+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});
+  const llStart=topY+PH,llY1=llStart+SEQ_GAP,llY2=llY1+totMH,botY=llY2+SEQ_GAP;
+  pOrd.forEach(p=>{s+='<line x1="'+cx[p]+'" y1="'+llStart+'" x2="'+cx[p]+'" y2="'+botY+'" stroke="#1e2433" stroke-width="1.5" stroke-dasharray="6,4"/>'});
+  let cumY=llY1;
+  msgs.forEach((msg,i)=>{
+    const rh=rH[i],wls=mLines[i],tl=wls.length;
+    const yArr=cumY+rh*0.5;cumY+=rh;
+    if(msg.type==='sep'){
+      // Separator: horizontal dashed line with centered label
+      const sy=yArr;
+      s+='<line x1="'+PAD+'" y1="'+sy+'" x2="'+(W-PAD)+'" y2="'+sy+'" stroke="#2a3a5c" stroke-width="1.5" stroke-dasharray="4,2"/>';
+      if(msg.lb){const tw=Math.round(msg.lb.length*7)+20;s+='<rect x="'+(W/2-tw/2-4)+'" y="'+(sy-9)+'" width="'+(tw+8)+'" height="18" fill="#0a0d14"/>';s+='<text x="'+(W/2)+'" y="'+(sy+4)+'" text-anchor="middle" font-size="'+FONT+'" fill="#94a3b8" font-family="Segoe UI,system-ui,sans-serif">'+ev(msg.lb)+'</text>'}
+    }else if(msg.type==='note'){
+      // Draw note box with folded corner, left-aligned white text
+      const nx=msg._nx,NW=msg._nw,NH=msg._nh,ny=msg.pos==='over'?yArr-NH/2:yArr-(rh+BASE_MH)/2;
+      const tx=nx+12,ty0=ny+15;
+      s+='<polygon points="'+nx+','+ny+' '+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW)+','+(ny+NH)+' '+nx+','+(ny+NH)+'" fill="#1a2010" stroke="#fbbf24" stroke-width="1.5"/>';
+      s+='<polygon points="'+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW-FK)+','+(ny+FK)+'" fill="#4a3800" stroke="#fbbf24" stroke-width="1"/>';
+      s+='<text text-anchor="start" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';
+      wls.forEach((ln,li)=>{s+='<tspan x="'+tx+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});
+      s+='</text>';
+      const _cp=JSON.stringify(msg.lb).replace(/"/g,'&quot;');
+      s+='<g onclick="(function(e){e.stopPropagation();navigator.clipboard.writeText('+_cp+').catch(function(){})})(event)" style="cursor:pointer"><rect x="'+(nx+NW-30)+'" y="'+(ny+4)+'" width="16" height="12" rx="2" fill="rgba(251,191,36,0.15)" stroke="rgba(251,191,36,0.4)" stroke-width="1"/><text x="'+(nx+NW-22)+'" y="'+(ny+13)+'" text-anchor="middle" font-size="9" fill="#fbbf24" font-family="sans-serif">&#x29C9;</text></g>';
+    }else{
+      const x1=cx[msg.f]!=null?cx[msg.f]:PAD+PW/2,x2=cx[msg.t]!=null?cx[msg.t]:PAD+PW/2;
+      const clr=msg.dashed?'#7dd3a8':'#60dcfa';
+      const da=msg.dashed?' stroke-dasharray="6,4"':'';
+      if(msg.f===msg.t){
+        const rx=x1+58;
+        s+='<path d="M'+x1+','+(yArr-14)+' C'+rx+','+(yArr-14)+' '+rx+','+(yArr+14)+' '+x1+','+(yArr+14)+'" fill="none" stroke="#a78bfa" stroke-width="1.5"'+da+'/>';
+        s+='<polygon points="'+x1+','+(yArr+14)+' '+(x1-6)+','+(yArr+6)+' '+(x1+6)+','+(yArr+6)+'" fill="#a78bfa"/>';
+        const ty0=yArr-(tl-1)*LH/2;
+        s+='<text font-size="'+FONT+'" fill="#a78bfa" font-family="Consolas,monospace">';
+        wls.forEach((ln,li)=>{s+='<tspan x="'+(rx+6)+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});
+        s+='</text>';
+      }else{
+        const d=x2>x1?1:-1;
+        s+='<line x1="'+x1+'" y1="'+yArr+'" x2="'+x2+'" y2="'+yArr+'" stroke="'+clr+'" stroke-width="1.5"'+da+'/>';
+        s+='<polygon points="'+x2+','+yArr+' '+(x2-d*10)+','+(yArr-5)+' '+(x2-d*10)+','+(yArr+5)+'" fill="'+clr+'"/>';
+        const midX=(x1+x2)/2,ty0=yArr-tl*LH;
+        s+='<text text-anchor="middle" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';
+        wls.forEach((ln,li)=>{s+='<tspan x="'+midX+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});
+        s+='</text>';
+      }
+    }
+  });
+  pOrd.forEach(p=>{const x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+botY+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(botY+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});
+  s+='</svg>';return s;
+}`;
+
     return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Utterance Detail #${utteranceIndex} - ${escH(e.utterance)}</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-serif;padding:0}
 .hdr{background:#0b0e15;border-bottom:1px solid #1e2433;padding:16px 28px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10}
 .title{font-size:18px;font-weight:700}.sub{font-size:12px;color:#64748b;margin-top:2px}
-.content{padding:24px 28px;max-width:1200px;margin:0 auto}
+.content{padding:24px 28px}
 .mg{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:24px}
 .mc{background:#0f1117;border-radius:8px;padding:12px 16px;border:1px solid #1e2433}
 .ml{font-size:10px;color:#64748b;text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px}
@@ -2120,7 +2593,8 @@ body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-seri
 <div class="hdr">
   <div><div class="title">Utterance Detail #${utteranceIndex}</div><div class="sub">${escH(e.utterance)} ${ver}</div></div>
   <div style="display:flex;gap:8px">
-    <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">📋 Copy All Logs</button>
+    <button class="btn-c" id="seqBtn" onclick="toggleSeq()" style="border-color:rgba(167,139,250,0.3)">&#128202; Sequence</button>
+    <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">&#128203; Copy All Logs</button>
   </div>
 </div>
 <div class="content">
@@ -2128,10 +2602,23 @@ body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-seri
   ${resultHtml}
   ${groupsHtml}
   ${screenshotHtml}
+  <div id="seqSection" style="display:none;margin-top:4px">
+    <div class="se" style="margin-bottom:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="st" style="color:#a78bfa;margin:0">&#128202; Sequence Diagram</div>
+        <div style="display:flex;gap:6px">
+          <button class="btn-c" id="seqSrcBtn" onclick="toggleSeqSrc()">&#128196; Source</button>
+          <button class="btn-c" id="seqCopyBtn" onclick="copySeqPuml()">&#128203; Copy PlantUML</button>
+        </div>
+      </div>
+      <textarea id="seqPumlTxt" spellcheck="false" oninput="scheduleSeq()" style="display:none;width:100%;height:120px;background:#0a0d14;color:#a8c4e0;font-family:'Consolas',monospace;font-size:11px;line-height:1.6;border:1px solid #1e2433;border-radius:6px;padding:10px 14px;outline:none;resize:vertical;box-sizing:border-box;margin-bottom:8px">${escH(pumlText)}</textarea>
+      <div id="seqSvgWrap" style="overflow-x:auto;background:#0a0d14;border:1px solid #1e2433;border-radius:6px;padding:16px"></div>
+    </div>
+  </div>
   <div class="se">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <div class="st" style="color:#94a3b8;margin:0">All Valid Logs (${allLogsData.length} lines)</div>
-      <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">📋 Copy All</button>
+      <button class="btn-c" onclick="c2c(document.getElementById('allLogs').innerText)">&#128203; Copy All</button>
     </div>
     <div class="log-all" id="allLogs"></div>
   </div>
@@ -2148,6 +2635,7 @@ if(succLine){const el=document.getElementById('succBox');if(el)el.innerHTML=mkC(
 if(failLines.length){const el=document.getElementById('failBox');if(el)el.innerHTML=failLines.map(l=>mkC(l)).join('<br>')}
 pgData.forEach((lines,i)=>{const el=document.getElementById('grp'+i);if(el)el.innerHTML=lines.map(l=>mkC(l)).join('<br>')});
 document.getElementById('allLogs').innerHTML=logsData.map(d=>'<span style="color:#4a5568">L'+d.ln+'</span>  '+mkC(d.text)).join('\\n');
+${seqScript}
 </script></body></html>`;
 }
 
@@ -2280,9 +2768,9 @@ async function displayDetailWindow(data) {
 }
 
 async function showDetail(idx) {
-    const e = filteredData[idx];
+    const e = entries[idx];
     if (!e) return;
-    const utteranceIndex = entries.indexOf(e) + 1 || idx + 1;
+    const utteranceIndex = idx + 1;
 
     let h = `<div class="modal-hdr"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">${esc(e.utterance)}</div></div><div style="display:flex;gap:8px;align-items:center"><button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()">🛠 DevTools</button><button class="modal-close" onclick="closeModal()" style="position:static;margin-left:10px">✕</button></div></div>`;
     h += '<div class="modal-content"><div class="meta-grid">';
@@ -2492,11 +2980,13 @@ async function doExport() {
         jsonChunks.push(JSON.stringify(chunk));
     }
 
-    let baseName = (currentFileName || 'report').replace(/\.[^.]+$/, '');
-    if (currentFileName === 'clipboard-paste') {
-        const now = new Date();
-        const timestamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
-        baseName = `${timestamp}_Clipboard`;
+    const _now = new Date();
+    const _ts = () => `${String(_now.getFullYear()).slice(2)}${String(_now.getMonth()+1).padStart(2,'0')}${String(_now.getDate()).padStart(2,'0')}_${String(_now.getHours()).padStart(2,'0')}${String(_now.getMinutes()).padStart(2,'0')}${String(_now.getSeconds()).padStart(2,'0')}`;
+    let baseName = (currentFileName || '').replace(/\.[^.]+$/, '');
+    if (!baseName || isLiveStreaming) {
+        baseName = `LiveLog_${_ts()}`;
+    } else if (currentFileName === 'clipboard-paste') {
+        baseName = `${_ts()}_Clipboard`;
     }
 
     const reportHtml = generateReportHtml();
@@ -2529,8 +3019,12 @@ body{background:#080a10;color:#e2e8f0;font-family:'Segoe UI',system-ui,sans-seri
 .cntlbl{font-size:11px;color:#4a5568;white-space:nowrap}
 .tw{background:#0b0e15;border:1px solid #1e2433;border-radius:12px;overflow:hidden}
 table{width:100%;border-collapse:collapse;font-size:12px}
-th.sh{background:#0f1219;border-bottom:1px solid #1e2433;padding:9px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;user-select:none;white-space:nowrap}
+th.sh{background:#0f1219;border-bottom:1px solid #1e2433;padding:9px 10px;text-align:left;font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:.8px;cursor:pointer;user-select:none;white-space:nowrap;position:relative}
 th.sh:hover{background:#141c2a;color:#94a3b8}
+.cr{position:absolute;right:0;top:0;height:100%;width:5px;cursor:col-resize;background:transparent}
+.cr:hover{background:rgba(96,220,250,0.3)}
+.btn-cd{background:#1e2433;border:1px solid #334155;color:#94a3b8;padding:3px 10px;border-radius:6px;cursor:pointer;font-size:11px}
+.btn-cd:hover{background:#2a3040;color:#e2e8f0}
 th.fh{background:#0a0d14;border-bottom:1px solid #1e2433;padding:4px 6px}
 .fi{background:#0f1117;border:1px solid #1e2433;border-radius:6px;padding:5px 8px;color:#e2e8f0;font-size:11px;width:100%;outline:none}
 .fi:focus{border-color:#2a4a7c}
@@ -2615,26 +3109,85 @@ async function changePageSize(val){pageSize=val==='all'?Infinity:parseInt(val);v
 function init2(){document.getElementById('al').style.display='none';document.getElementById('fp').style.display='none';document.getElementById('mainui').style.display='';
 document.getElementById('fs').textContent=totalEntries+' utterances';
 document.getElementById('sb').innerHTML= (C && C.enable_result_judgment === false) ? '<div class="stat"><b style="color:#60dcfa">'+S.total+'</b><span>Total Utterances</span></div>' : [{l:'Total',v:S.total,c:'#60dcfa'},{l:'Success',v:S.success,c:'#34d399'},{l:'Fail',v:S.fail,c:'#f87171'},{l:'Partial',v:S.partial,c:'#fbbf24'},{l:'Unknown',v:S.unknown,c:'#94a3b8'},{l:'Pass Rate',v:S.passRate+'%',c:'#a78bfa'}].map(function(s){return'<div class="stat"><b style="color:'+s.c+'">'+s.v+'</b><span>'+s.l+'</span></div>'}).join('');
-document.getElementById('th').innerHTML='<tr>'+C.table_columns.map(function(c){return'<th class="sh" onclick="ds2(\\''+c.key+'\\')\" id=\"sh_'+c.key+'">'+c.label+' <span id="si_'+c.key+'" style="opacity:0.35">⇅</span></th>'}).join('')+'</tr>';
+document.getElementById('th').innerHTML='<tr>'+C.table_columns.map(function(c){return'<th class="sh" onclick="ds2(\\''+c.key+'\\')\" id=\"sh_'+c.key+'">'+c.label+' <span id="si_'+c.key+'" style="opacity:0.35">⇅</span><div class="cr" onmousedown="initCR(event,this.parentElement)" onclick="event.stopPropagation()"></div></th>'}).join('')+'</tr>';
 document.getElementById('tf').innerHTML='<tr>'+C.table_columns.map(function(c){return'<th class="fh"><input class="fi" placeholder="'+c.label+'..." data-col="'+c.key+'" oninput="cfCh(this)"></th>'}).join('')+'</tr>';
 rt()}
 function cfCh(inp){cFil[inp.dataset.col]=(inp.value||'').toLowerCase();rt()}
 function ds2(c){if(sc2===c)sd2=sd2==='asc'?'desc':'asc';else{sc2=c;sd2='asc'};C.table_columns.forEach(function(col){var el=document.getElementById('si_'+col.key);if(el)el.textContent=col.key===sc2?(sd2==='asc'?'↑':'↓'):'⇅'});rt()}
-function gf2(){var q=(document.getElementById('si').value||'').toLowerCase();var r=pageSize===Infinity?D:D.slice(0,pageSize);if(q)r=r.filter(function(e){return Object.values(e).some(function(v){return(v||'').toString().toLowerCase().includes(q)})});Object.keys(cFil).forEach(function(col){if(!cFil[col])return;r=r.filter(function(e){return((e[col]||'').toString().toLowerCase().includes(cFil[col]))})});if(sc2)r=[].concat(r).sort(function(a,b){var va=(a[sc2]||'').toString().toLowerCase(),vb=(b[sc2]||'').toString().toLowerCase();return sd2==='asc'?va.localeCompare(vb):vb.localeCompare(va)});fD2=r;return r}
+function gf2(){var q=(document.getElementById('si').value||'').toLowerCase();var r=pageSize===Infinity?D:D.slice(0,pageSize);if(q)r=r.filter(function(e){return Object.values(e).some(function(v){return(v||'').toString().toLowerCase().includes(q)})});Object.keys(cFil).forEach(function(col){if(!cFil[col])return;var cf=cFil[col];r=r.filter(function(e){var val=(e[col]||'').toString().toLowerCase();if(cf==='n/a'){return !e[col]}if(cf==='!n/a'){return !!e[col]}if(cf.charAt(0)==='!'){var nt=cf.slice(1);return !nt||!val.includes(nt)}return val.includes(cf)})});if(sc2)r=[].concat(r).sort(function(a,b){var va=(a[sc2]||'').toString().toLowerCase(),vb=(b[sc2]||'').toString().toLowerCase();return sd2==='asc'?va.localeCompare(vb):vb.localeCompare(va)});fD2=r;return r}
 function rt(){var rows=gf2(),cols=C.table_columns;var showing=pageSize===Infinity?totalEntries:Math.min(pageSize,totalEntries);document.getElementById('cntlbl').textContent='Showing '+showing+'/'+totalEntries+' | '+rows.length+' after filter';document.getElementById('tb').innerHTML=rows.map(function(e,i){return'<tr class="dr" style="cursor:pointer" onclick="sd3('+i+')">'+cols.map(function(c){var v=e[c.key];var sv=v||'N/A';if(c.type==='badge')return'<td><span class="badge badge-'+sv+'">'+sv+'</span></td>';if(c.type==='utterance')return'<td class="wrap"><span class="utt">'+esc2(sv)+'</span></td>';if(c.clickable_key&&C.clickable_patterns[c.clickable_key]&&v){var cp=C.clickable_patterns[c.clickable_key];var t1=gt1(cp),t2=gt2(cp);if(t1||t2){var lnk='<div style="display:flex;flex-direction:column;gap:2px">';if(t1)lnk+='<a class="cl" href="'+t1.replace('{value}',v)+'" target="_blank" onclick="event.stopPropagation()">'+esc2(v)+'</a>';if(t2)lnk+='<a class="cl" href="'+t2.replace('{value}',v)+'" target="_blank" onclick="event.stopPropagation()" style="color:#a8e6cf;font-size:0.88em">'+esc2(v)+'</a>';lnk+='</div>';return'<td class="wrap">'+lnk+'</td>'}}if(c.type==='log')return'<td class="wrap">'+mkC(sv)+'</td>';return'<td>'+esc2(sv)+'</td>'}).join('')+'</tr>'}).join('')}
-function sd3(i){var e=fD2[i];if(!e)return;var h='<div class="mh"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">'+esc2(e.utterance)+'</div></div><button class="cb" onclick="cm()">✕</button></div><div style="padding:20px 28px">';
+var curE2=null;
+function sd3(i){var e=fD2[i];if(!e)return;curE2=e;
+var h='<div class="mh"><div><div style="font-size:18px;font-weight:700">Utterance Detail</div><div style="font-size:13px;color:#64748b;margin-top:2px">'+esc2(e.utterance)+'</div></div>';
+h+='<div style="display:flex;gap:8px;align-items:center"><button class="btn-cd" id="seqBtnD" onclick="tgSeqD()">&#128202; Sequence</button><button class="btn-cd" onclick="cpAllLogsD()">&#128203; Copy All Logs</button><button class="cb" onclick="cm()">&#10005;</button></div></div>';
+h+='<div style="padding:20px 28px">';
 h+='<div class="mg">';
-var metaArr = [{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Capsule Goal',v:e.capsuleGoal,allV:e._allMatches&&e._allMatches.capsuleGoal},{l:'Utterance',v:e.utterance}];
-if (C && C.enable_result_judgment !== false) metaArr.push({l:'Result',v:e.result,b:1});
-metaArr.forEach(function(m){h+='<div class="mc"><div class="ml">'+m.l+'</div>';if(m.b){h+='<span class="badge badge-'+m.v+'">'+m.v+'</span>'}else if(m.ck&&C.clickable_patterns&&C.clickable_patterns[m.ck]&&m.v){var cp=C.clickable_patterns[m.ck];var t1=gt1(cp),t2=gt2(cp);var lnk='';if(t1)lnk+='<a href="'+t1.replace('{value}',m.v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline;font-size:13px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';else lnk=esc2(m.v);if(t2)lnk+='<br><a href="'+t2.replace('{value}',m.v)+'" target="_blank" style="color:#a8e6cf;text-decoration:underline;font-size:12px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';h+='<div class="mv">'+lnk+'</div>'}else if(m.allV&&m.allV.length>1){h+='<div class="mv">'+m.allV.map(function(v,i){return'<span style="'+(i===m.allV.length-1?'color:#e2e8f0;font-weight:600':'color:#64748b;text-decoration:line-through')+'">'+esc2(v)+'</span>'}).join('<span style="color:#334155;margin:0 4px">→</span>')+'</div>'}else{h+='<div class="mv">'+esc2(m.v)+'</div>'}h+='</div>'});
+var metaArr=[{l:'Conversation ID',v:e.conversationId,ck:'conversationId'},{l:'Request ID',v:e.requestId,ck:'requestId'},{l:'Capsule Goal',v:e.capsuleGoal,allV:e._allMatches&&e._allMatches.capsuleGoal},{l:'Utterance',v:e.utterance}];
+if(C&&C.enable_result_judgment!==false)metaArr.push({l:'Result',v:e.result,b:1});
+metaArr.forEach(function(m){
+  h+='<div class="mc"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px"><div class="ml">'+m.l+'</div>';
+  if(m.l==='Conversation ID'&&m.v)h+='<button class="btn-cd" data-convid="'+esc2(m.v)+'" onclick="cpConvD(this)" style="font-size:10px;padding:2px 7px">&#128203; Copy</button>';
+  h+='</div>';
+  if(m.b){h+='<span class="badge badge-'+m.v+'">'+m.v+'</span>'}
+  else if(m.ck&&C.clickable_patterns&&C.clickable_patterns[m.ck]&&m.v){var cp=C.clickable_patterns[m.ck];var t1=gt1(cp),t2=gt2(cp);var lnk='';if(t1)lnk+='<a href="'+t1.replace('{value}',m.v)+'" target="_blank" style="color:#60dcfa;text-decoration:underline;font-size:13px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';else lnk=esc2(m.v);if(t2)lnk+='<br><a href="'+t2.replace('{value}',m.v)+'" target="_blank" style="color:#a8e6cf;text-decoration:underline;font-size:12px;font-family:monospace;word-break:break-all">'+esc2(m.v)+'</a>';h+='<div class="mv">'+lnk+'</div>'}
+  else if(m.allV&&m.allV.length>1){h+='<div class="mv">'+m.allV.map(function(v,idx){return'<span style="'+(idx===m.allV.length-1?'color:#e2e8f0;font-weight:600':'color:#64748b;text-decoration:line-through')+'">'+esc2(v)+'</span>'}).join('<span style="color:#334155;margin:0 4px">&#8594;</span>')+'</div>'}
+  else{h+='<div class="mv">'+esc2(m.v)+'</div>'}
+  h+='</div>';
+});
 h+='</div>';
-if(e.successLine)h+='<div class="se"><div class="st" style="color:#34d399">✓ Success Match</div><div class="sb2">'+mkC(e.successLine)+'</div></div>';
-if(e.failLines&&e.failLines.length)h+='<div class="se"><div class="st" style="color:#f87171">✗ Failure Matches</div><div class="fb2">'+e.failLines.map(function(l){return mkC(l)}).join('<br>')+'</div></div>';
-if(e.patternGroups&&Object.keys(e.patternGroups).length){h+='<div class="se"><div class="st" style="color:#60dcfa">Pattern Groups</div>';for(var k in e.patternGroups){var g=e.patternGroups[k];h+='<div style="margin-bottom:12px"><div class="gn">'+esc2(g.name)+'</div><div class="lb" style="max-height:200px">'+g.lines.map(function(l){return mkC(l)}).join('<br>')+'</div></div>'}h+='</div>'}
-if(e.screenshots&&e.screenshots.length){h+='<div class="se"><div class="st" style="color:#a78bfa">📸 Screenshots ('+e.screenshots.length+')</div><div class="ss-grid">';e.screenshots.forEach(function(s){h+='<div style="border:1px solid #1e2433;border-radius:6px;overflow:hidden;background:#0a0d14" title="'+esc2(s.name)+'"><img src="data:image/png;base64,'+s.data+'" onclick="ssV(this.src)"></div>'});h+='</div></div>'}
-h+='<div class="se"><div class="st" style="color:#94a3b8">All Valid Logs ('+e.allLines.length+' lines)</div><div class="lb">'+e.allLines.map(function(l,i){var ln=(e.lineNumbers&&e.lineNumbers[i])?e.lineNumbers[i]:(i+1);return'<span style="color:#334155;min-width:30px;display:inline-block;text-align:right;margin-right:10px;user-select:none">L'+ln+'</span>'+mkC(l)}).join('<br>')+'</div></div>';
+if(e.successLine)h+='<div class="se"><div class="st" style="color:#34d399">&#10003; Success Match</div><div class="sb2">'+mkC(e.successLine)+'</div></div>';
+if(e.failLines&&e.failLines.length)h+='<div class="se"><div class="st" style="color:#f87171">&#10007; Failure Matches</div><div class="fb2">'+e.failLines.map(function(l){return mkC(l)}).join('<br>')+'</div></div>';
+if(e.patternGroups&&Object.keys(e.patternGroups).length){h+='<div class="se"><div class="st" style="color:#60dcfa">Pattern Groups</div>';for(var gk in e.patternGroups){var g=e.patternGroups[gk];h+='<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;align-items:center"><div class="gn">'+esc2(g.name)+'</div><button class="btn-cd" onclick="cpTxt(this.parentElement.nextElementSibling.innerText)">&#128203; Copy</button></div><div class="lb" style="max-height:200px">'+g.lines.map(function(l){return mkC(l)}).join('<br>')+'</div></div>'}h+='</div>'}
+if(e.screenshots&&e.screenshots.length){h+='<div class="se"><div class="st" style="color:#a78bfa">&#128248; Screenshots ('+e.screenshots.length+')</div><div class="ss-grid">';e.screenshots.forEach(function(s){h+='<div style="border:1px solid #1e2433;border-radius:6px;overflow:hidden;background:#0a0d14" title="'+esc2(s.name)+'"><img src="data:image/png;base64,'+s.data+'" onclick="ssV(this.src)"></div>'});h+='</div></div>'}
+h+='<div id="seqSecD" style="display:none;margin-top:4px"><div class="se" style="margin-bottom:0"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><div class="st" style="color:#a78bfa;margin:0">&#128202; Sequence Diagram</div><div style="display:flex;gap:6px"><button class="btn-cd" id="seqSrcBtnD" onclick="tgSrcD()">&#128196; Source</button><button class="btn-cd" id="seqCpBtnD" onclick="cpPumlD()">&#128203; Copy PlantUML</button></div></div><textarea id="seqTxtD" oninput="schSeqD()" style="display:none;width:100%;height:120px;background:#0a0d14;border:1px solid #1e2433;border-radius:6px;color:#e2e8f0;font-family:Consolas,monospace;font-size:12px;padding:8px;resize:vertical;outline:none;margin-bottom:8px"></textarea><div id="seqSvgD" style="overflow-x:auto;background:#0a0d14;border:1px solid #1e2433;border-radius:6px;padding:12px;min-height:60px"></div></div></div>';
+h+='<div class="se"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><div class="st" style="color:#94a3b8;margin:0">All Valid Logs ('+e.allLines.length+' lines)</div><button class="btn-cd" onclick="cpAllLogsD()">&#128203; Copy All</button></div><div class="lb" id="allLogsD">'+e.allLines.map(function(l,i){var ln=(e.lineNumbers&&e.lineNumbers[i])?e.lineNumbers[i]:(i+1);return'<span style="color:#334155;min-width:30px;display:inline-block;text-align:right;margin-right:10px;user-select:none">L'+ln+'</span>'+mkC(l)}).join('<br>')+'</div></div>';
 h+='</div>';
 document.getElementById('mc2').innerHTML=h;document.getElementById('md').classList.add('op')}
+function tgSeqD(){var sec=document.getElementById('seqSecD'),btn=document.getElementById('seqBtnD');if(!sec||!curE2)return;if(sec.style.display==='none'){sec.style.display='block';btn.style.color='#a78bfa';btn.style.borderColor='rgba(167,139,250,0.5)';var p=genPuml(curE2);document.getElementById('seqTxtD').value=p;upSeqD();setTimeout(function(){sec.scrollIntoView({behavior:'smooth',block:'start'})},50)}else{sec.style.display='none';btn.style.color='';btn.style.borderColor=''}}
+function tgSrcD(){var ta=document.getElementById('seqTxtD');var btn=document.getElementById('seqSrcBtnD');var vis=ta.style.display!=='none';ta.style.display=vis?'none':'block';btn.style.color=vis?'':'#a78bfa';btn.style.borderColor=vis?'':'rgba(167,139,250,0.4)'}
+function schSeqD(){clearTimeout(window._stD);window._stD=setTimeout(upSeqD,600)}
+function upSeqD(){var t=document.getElementById('seqTxtD');if(t)document.getElementById('seqSvgD').innerHTML=rSeqSVG(t.value)}
+function cpPumlD(){var t=document.getElementById('seqTxtD').value;navigator.clipboard.writeText(t).then(function(){var b=document.getElementById('seqCpBtnD');if(b){var o=b.textContent;b.textContent='✓ Copied!';setTimeout(function(){b.textContent=o},1500)}}).catch(function(){})}
+function cpTxt(txt){navigator.clipboard.writeText(txt||'').then(function(){showT('Copied!')}).catch(function(){})}
+function cpAllLogsD(){var el=document.getElementById('allLogsD');if(el)cpTxt(el.innerText)}
+function cpConvD(btn){cpTxt((btn&&btn.getAttribute('data-convid'))||'')}
+function showT(msg){var d=document.createElement('div');d.style='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#34d399;color:#064e3b;padding:10px 22px;border-radius:8px;font-weight:600;z-index:9999;pointer-events:none';d.textContent=msg;document.body.appendChild(d);setTimeout(function(){d.remove()},1200)}
+function genPuml(e){var lines=e.allLines||[],items=[];function exV(ln,m){if(m&&m[1])return m[1].trim();if(m&&m.index!==undefined)return ln.substring(m.index).trim();return ln.trim()}
+function pumlT(puml){if(!puml)return[];return Array.isArray(puml)?puml:[puml]}
+function patS(p){return typeof p==='string'?p:(p&&p.pattern)||''}
+function apP(tmpl,val,ln){var isT=tmpl.trimLeft().indexOf('title')===0;if(isT||tmpl.indexOf('{value}')<0)return tmpl.replace('{value}',val);var ci=tmpl.lastIndexOf(': ');var lbl=(ci>=0?tmpl.substring(ci+2):tmpl).replace('{value}',val);var pfx='L'+ln+': '+lbl;return ci>=0?tmpl.substring(0,ci+2)+pfx:pfx}
+for(var i=0;i<lines.length;i++){var line=lines[i];var lineNum=(e.lineNumbers&&e.lineNumbers[i])?e.lineNumbers[i]:(i+1);
+if(C&&C.utterance_patterns){for(var uk in C.utterance_patterns){var uc=C.utterance_patterns[uk];if(!uc.PlantUML)continue;try{var um=line.match(new RegExp(uc.pattern));if(um){var uv=exV(line,um);pumlT(uc.PlantUML).forEach(function(tmpl){var isT=tmpl.trimLeft().indexOf('title')===0;items.push({text:apP(tmpl,uv,lineNum),isTitle:isT})})}}catch(x){}}}
+if(C&&C.clickable_patterns){for(var ck in C.clickable_patterns){var cc=C.clickable_patterns[ck];if(!cc.PlantUML)continue;try{var cm2=line.match(new RegExp(cc.pattern));if(cm2){var cv=exV(line,cm2);pumlT(cc.PlantUML).forEach(function(tmpl){items.push({text:apP(tmpl,cv,lineNum),isTitle:false})})}}catch(x){}}}
+if(C&&C.pattern_groups){for(var gk in C.pattern_groups){var grp=C.pattern_groups[gk];for(var pi=0;pi<(grp.patterns||[]).length;pi++){var pEnt=grp.patterns[pi];var ps=patS(pEnt);var ePuml=(typeof pEnt==='object'&&pEnt.PlantUML)?pEnt.PlantUML:grp.PlantUML;if(!ps||!ePuml)continue;try{var gm=line.match(new RegExp(ps));if(gm){var gv=exV(line,gm);pumlT(ePuml).forEach(function(tmpl){items.push({text:apP(tmpl,gv,lineNum),isTitle:false})});break}}catch(x){}}}}
+}
+var titles=items.filter(function(p){return p.isTitle}).map(function(p){return p.text});
+var rest=items.filter(function(p){return!p.isTitle}).map(function(p){return p.text});
+return['@startuml'].concat(titles).concat(rest).concat(['@enduml']).join('\\n')}
+function rSeqSVG(src){var lines=src.split(/[\\r\\n]+/).map(function(l){return l.trim()}).filter(function(l){return l&&l!=='@startuml'&&l!=='@enduml'});var title='',pOrd=[],pSet={},msgs=[];for(var i=0;i<lines.length;i++){var l=lines[i];if(l.indexOf('title ')===0){title=l.slice(6).trim();continue}var sm=l.match(/^==\s*(.*?)\s*==$/);if(sm){msgs.push({type:'sep',lb:sm[1].trim(),dashed:false});continue}if(/-\[hidden\]/i.test(l)){var hm=l.match(/^(\S+)\s+.*?\s+(\S+)\s*$/);if(hm){var hf=hm[1],ht=hm[2];if(!pSet[hf]){pSet[hf]=1;pOrd.push(hf)}if(!pSet[ht]){pSet[ht]=1;pOrd.push(ht)}}continue}var nm=l.match(/^note\s+(right|left|over)\s*([^:]*)\s*:\s*(.*)$/i);if(nm){var nPos=nm[1].toLowerCase();var nParts=nm[2].trim()?nm[2].split(',').map(function(p){return p.trim()}).filter(Boolean):[];msgs.push({type:'note',pos:nPos,parts:nParts,lb:nm[3].trim(),dashed:false});continue}var f,t,lb,dashed=false;var rm=l.match(/^(\S+)\s*(-+>>?[ox]?|[ox]?-+>>?[ox]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(rm){f=rm[1].trim();t=rm[3].trim();lb=rm[4].trim();dashed=rm[2].indexOf('--')>=0}else{var lm=l.match(/^(\S+)\s*(<<?-+[<]?)\s+([^:\s]+)\s*:\s*(.*)$/);if(lm){f=lm[3].trim();t=lm[1].trim();lb=lm[4].trim();dashed=lm[2].indexOf('--')>=0}else{var om=l.match(/^(\S+)\s*-(.*)->\s*(\S+)$/);if(om){f=om[1].trim();lb=om[2].trim();t=om[3].trim()}}}if(f&&t){if(!pSet[f]){pSet[f]=1;pOrd.push(f)}if(!pSet[t]){pSet[t]=1;pOrd.push(t)}msgs.push({f:f,t:t,lb:lb||'',dashed:dashed})}}
+if(!pOrd.length)return'<div style="color:#64748b;font-size:12px;padding:16px;text-align:center">No sequence arrows found.</div>';
+function ev(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+var PAD=24,PW=150,PH=34,BASE_MH=36,SEP_H=22,FONT=11,NOTE_MAX=80,LH=13,FK=8;
+function vW(s){var w=0;for(var i=0;i<(s||'').length;i++){var c=(s||'').charCodeAt(i);w+=(c>=0xAC00&&c<=0xD7AF||c>=0x1100&&c<=0x11FF||c>=0x4E00&&c<=0x9FFF)?2:1;}return w}
+function wL(lb,max){if(!lb||vW(lb)<=max)return[lb||''];var r=[],ws=lb;while(vW(ws)>max){var w=0,idx=0;while(idx<ws.length){var c=ws.charCodeAt(idx);var cw=(c>=0xAC00&&c<=0xD7AF||c>=0x1100&&c<=0x11FF||c>=0x4E00&&c<=0x9FFF)?2:1;if(w+cw>max)break;w+=cw;idx++;}r.push(ws.slice(0,idx));ws=ws.slice(idx);}r.push(ws);return r}
+var mLines=msgs.map(function(m){return m.type==='note'?wL(m.lb,NOTE_MAX):[m.lb||'']});
+var rH=mLines.map(function(ls,i){return msgs[i].type==='sep'?SEP_H:msgs[i].type==='note'?15+(ls.length-1)*LH+15+20:BASE_MH+(ls.length-1)*LH});
+var totMH=rH.reduce(function(a,b){return a+b},0);
+var arrowLns=[];msgs.forEach(function(m,i){if(m.type!=='note'&&m.type!=='sep')mLines[i].forEach(function(ln){arrowLns.push(ln)})});
+var maxChunk=Math.max(10,arrowLns.length?Math.max.apply(null,arrowLns.map(function(l){return l.length})):10);
+var GAP=Math.max(220,Math.round(maxChunk*6.5)+60);
+var N=pOrd.length;var cx={};pOrd.forEach(function(p,i){cx[p]=PAD+PW/2+i*GAP});
+msgs.forEach(function(msg,i){if(msg.type!=='note')return;var wls=mLines[i];var maxNL=Math.max.apply(null,[10].concat(wls.map(function(l){return vW(l)})));var NW=Math.max(100,Math.round(maxNL*6.5)+52);var NH=15+(wls.length-1)*LH+15;var nx=0,nw=NW;if(msg.pos==='right'){nx=Math.max.apply(null,pOrd.map(function(p){return cx[p]}))+PW/2+10}else if(msg.pos==='left'){nx=Math.min.apply(null,pOrd.map(function(p){return cx[p]}))-PW/2-NW-10}else{if(msg.parts.length>=2){var x1=cx[msg.parts[0]]!=null?cx[msg.parts[0]]:cx[pOrd[0]];var x2=cx[msg.parts[1]]!=null?cx[msg.parts[1]]:cx[pOrd[N-1]];nx=Math.min(x1,x2)-PW/2;nw=Math.max(NW,Math.abs(x2-x1)+PW)}else{var px=msg.parts[0]&&cx[msg.parts[0]]!=null?cx[msg.parts[0]]:cx[pOrd[Math.floor((N-1)/2)]];nx=px-NW/2}}msg._nx=nx;msg._nw=nw;msg._nh=NH});
+var xShift=0;msgs.forEach(function(msg){if(msg.type==='note'&&msg._nx<PAD)xShift=Math.max(xShift,PAD-msg._nx)});
+if(xShift>0){pOrd.forEach(function(p){cx[p]+=xShift});msgs.forEach(function(msg){if(msg.type==='note')msg._nx+=xShift})}
+var baseW=PAD*2+(N-1)*GAP+PW+xShift;var extraW=0;msgs.forEach(function(msg){if(msg.type==='note')extraW=Math.max(extraW,msg._nx+msg._nw-(baseW-PAD))});
+var W=baseW+Math.max(0,extraW);var SEQ_GAP=14;var tH=title?40:0,H=tH+PAD/2+PH+SEQ_GAP+totMH+SEQ_GAP+PH+PAD/2;
+var s='<svg xmlns="http://www.w3.org/2000/svg" width="'+W+'" height="'+H+'" style="display:block;min-width:'+W+'px">';s+='<rect width="'+W+'" height="'+H+'" fill="#0a0d14"/>';if(title)s+='<text x="'+(W/2)+'" y="28" text-anchor="middle" font-size="14" font-weight="700" fill="#e2e8f0" font-family="Segoe UI,system-ui,sans-serif">'+ev(title)+'</text>';var topY=tH+PAD/2;pOrd.forEach(function(p){var x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+topY+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(topY+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});var llStart=topY+PH,llY1=llStart+SEQ_GAP,llY2=llY1+totMH,botY=llY2+SEQ_GAP;pOrd.forEach(function(p){s+='<line x1="'+cx[p]+'" y1="'+llStart+'" x2="'+cx[p]+'" y2="'+botY+'" stroke="#1e2433" stroke-width="1.5" stroke-dasharray="6,4"/>'});
+var cumY=llY1;msgs.forEach(function(msg,i){var rh=rH[i],wls=mLines[i],tl=wls.length;var yArr=cumY+rh*0.5;cumY+=rh;if(msg.type==='sep'){var sy=yArr;s+='<line x1="'+PAD+'" y1="'+sy+'" x2="'+(W-PAD)+'" y2="'+sy+'" stroke="#2a3a5c" stroke-width="1.5" stroke-dasharray="4,2"/>';if(msg.lb){var tw=Math.round(msg.lb.length*7)+20;s+='<rect x="'+(W/2-tw/2-4)+'" y="'+(sy-9)+'" width="'+(tw+8)+'" height="18" fill="#0a0d14"/>';s+='<text x="'+(W/2)+'" y="'+(sy+4)+'" text-anchor="middle" font-size="'+FONT+'" fill="#94a3b8" font-family="Segoe UI,system-ui,sans-serif">'+ev(msg.lb)+'</text>'}}else if(msg.type==='note'){var nx=msg._nx,NW=msg._nw,NH=msg._nh,ny=msg.pos==='over'?yArr-NH/2:yArr-(rh+BASE_MH)/2;var tx=nx+12,ty0n=ny+15;s+='<polygon points="'+nx+','+ny+' '+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW)+','+(ny+NH)+' '+nx+','+(ny+NH)+'" fill="#1a2010" stroke="#fbbf24" stroke-width="1.5"/>';s+='<polygon points="'+(nx+NW-FK)+','+ny+' '+(nx+NW)+','+(ny+FK)+' '+(nx+NW-FK)+','+(ny+FK)+'" fill="#4a3800" stroke="#fbbf24" stroke-width="1"/>';s+='<text text-anchor="start" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+tx+'" y="'+(ty0n+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>';var _cp=JSON.stringify(msg.lb).replace(/"/g,'&quot;');s+='<g onclick="(function(e){e.stopPropagation();navigator.clipboard.writeText('+_cp+').catch(function(){})})(event)" style="cursor:pointer"><rect x="'+(nx+NW-30)+'" y="'+(ny+4)+'" width="16" height="12" rx="2" fill="rgba(251,191,36,0.15)" stroke="rgba(251,191,36,0.4)" stroke-width="1"/><text x="'+(nx+NW-22)+'" y="'+(ny+13)+'" text-anchor="middle" font-size="9" fill="#fbbf24" font-family="sans-serif">&#x29C9;</text></g>'}else{var x1=cx[msg.f]!=null?cx[msg.f]:PAD+PW/2,x2=cx[msg.t]!=null?cx[msg.t]:PAD+PW/2;var clr=msg.dashed?'#7dd3a8':'#60dcfa';var da=msg.dashed?' stroke-dasharray="6,4"':'';if(msg.f===msg.t){var rx=x1+58;s+='<path d="M'+x1+','+(yArr-14)+' C'+rx+','+(yArr-14)+' '+rx+','+(yArr+14)+' '+x1+','+(yArr+14)+'" fill="none" stroke="#a78bfa" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x1+','+(yArr+14)+' '+(x1-6)+','+(yArr+6)+' '+(x1+6)+','+(yArr+6)+'" fill="#a78bfa"/>';var ty0s=yArr-(tl-1)*LH/2;s+='<text font-size="'+FONT+'" fill="#a78bfa" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+(rx+6)+'" y="'+(ty0s+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}else{var d=x2>x1?1:-1;s+='<line x1="'+x1+'" y1="'+yArr+'" x2="'+x2+'" y2="'+yArr+'" stroke="'+clr+'" stroke-width="1.5"'+da+'/>';s+='<polygon points="'+x2+','+yArr+' '+(x2-d*10)+','+(yArr-5)+' '+(x2-d*10)+','+(yArr+5)+'" fill="'+clr+'"/>';var midX=(x1+x2)/2,ty0=yArr-tl*LH;s+='<text text-anchor="middle" font-size="'+FONT+'" fill="#e2e8f0" font-family="Consolas,monospace">';wls.forEach(function(ln,li){s+='<tspan x="'+midX+'" y="'+(ty0+li*LH)+'">'+ev(ln)+'</tspan>'});s+='</text>'}}});
+pOrd.forEach(function(p){var x=cx[p]-PW/2;s+='<rect x="'+x+'" y="'+botY+'" width="'+PW+'" height="'+PH+'" rx="5" fill="#0f1219" stroke="#2a3a5c" stroke-width="1.5"/><text x="'+cx[p]+'" y="'+(botY+PH/2+5)+'" text-anchor="middle" font-size="'+(FONT+1)+'" font-weight="600" fill="#60dcfa" font-family="Consolas,monospace">'+ev(p)+'</text>'});s+='</svg>';return s}
+var _crData=null;function initCR(e,th){e.preventDefault();_crData={th:th,x:e.clientX,w:th.offsetWidth};document.addEventListener('mousemove',doCR);document.addEventListener('mouseup',stopCR)}
+function doCR(e){if(!_crData)return;var w=Math.max(60,_crData.w+e.clientX-_crData.x);_crData.th.style.width=w+'px';_crData.th.style.minWidth=w+'px'}
+function stopCR(){_crData=null;document.removeEventListener('mousemove',doCR);document.removeEventListener('mouseup',stopCR)}
 function ssV(src){var d=document.createElement('div');d.className='ssv';d.onclick=function(){d.remove()};d.innerHTML='<img src="'+src+'">';document.body.appendChild(d)}
 function cm(){document.getElementById('md').classList.remove('op')}
 function loadManual(f){var r=new FileReader();r.onload=function(ev){try{var data=JSON.parse(ev.target.result);C=data.config;S=data.stats;totalChunks=data.totalChunks||1;totalEntries=data.totalEntries||data.entries.length;D=data.entries;loadedChunks=1;if(C&&C.table_columns)C.table_columns.forEach(function(col){cFil[col.key]=''});init2()}catch(x){alert('Invalid JSON: '+x.message)}};r.readAsText(f)}

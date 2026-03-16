@@ -148,17 +148,11 @@ function parseBlock(lines, lineNumbers, config) {
   let hasS = false, hasF = false;
   for (const l of lines) {
     for (const sp of config.success_patterns || []) {
-      if (l.includes(sp)) {
-        hasS = true;
-        e.successLine = l;
-      }
+      try { if (new RegExp(sp).test(l)) { hasS = true; e.successLine = l; } } catch { if (l.includes(sp)) { hasS = true; e.successLine = l; } }
     }
     if (config.failure_patterns) {
       for (const fp of config.failure_patterns) {
-        if (l.includes(fp)) {
-          hasF = true;
-          e.failLines.push(l);
-        }
+        try { if (new RegExp(fp).test(l)) { hasF = true; e.failLines.push(l); } } catch { if (l.includes(fp)) { hasF = true; e.failLines.push(l); } }
       }
     }
   }

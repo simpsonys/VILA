@@ -64,6 +64,21 @@ autoUpdater.setFeedURL({
 });
 
 const CONFIG_NAME = "pattern_config.json";
+const SETTINGS_NAME = "vila_settings.json";
+
+function loadSettings() {
+  try {
+    const p = path.join(app.getPath("userData"), SETTINGS_NAME);
+    if (fs.existsSync(p)) return JSON.parse(fs.readFileSync(p, "utf-8"));
+  } catch (e) {}
+  return {};
+}
+function saveSettings(data) {
+  try {
+    const p = path.join(app.getPath("userData"), SETTINGS_NAME);
+    fs.writeFileSync(p, JSON.stringify({ ...loadSettings(), ...data }, null, 2));
+  } catch (e) {}
+}
 
 function getConfigPath() {
   return path.join(app.getPath("userData"), CONFIG_NAME);
@@ -123,15 +138,24 @@ function createWindow() {
 
 
 
-// Track current config file name
+// Track current config file name — initialized after app.ready (app.getPath requires app.ready)
 let currentConfigFile = CONFIG_NAME;
 
 // IPC: Load config (returns {config, fileName})
 ipcMain.handle("load-config", async () => {
-  const configPath = ensureConfig();
   try {
+    const configPath = path.join(app.getPath("userData"), currentConfigFile);
+    if (fs.existsSync(configPath)) {
+      const data = fs.readFileSync(configPath, "utf-8");
+      return { config: JSON.parse(data), fileName: currentConfigFile };
+    }
+  } catch (e) {}
+  // fallback to default
+  try {
+    const configPath = path.join(app.getPath("userData"), CONFIG_NAME);
     const data = fs.readFileSync(configPath, "utf-8");
-    return { config: JSON.parse(data), fileName: currentConfigFile };
+    currentConfigFile = CONFIG_NAME;
+    return { config: JSON.parse(data), fileName: CONFIG_NAME };
   } catch (e) {
     return null;
   }
@@ -162,6 +186,7 @@ ipcMain.handle("switch-preset", async (event, fileName) => {
     }
     const data = fs.readFileSync(configPath, "utf-8");
     currentConfigFile = fileName;
+    saveSettings({ lastPreset: fileName });
     return { config: JSON.parse(data), fileName };
   } catch (e) {
     console.error("Failed to switch preset:", e);
@@ -226,6 +251,7 @@ ipcMain.handle("delete-preset", async (event, fileName) => {
       console.log(`Preset deleted: ${fileName}`);
       if (currentConfigFile === fileName) {
           currentConfigFile = CONFIG_NAME;
+          saveSettings({ lastPreset: CONFIG_NAME });
       }
       return { success: true };
     }
@@ -844,6 +870,8 @@ if (!gotTheLock) {
 
   app.whenReady().then(() => {
     writeToLog('info', `VILA App Started, Version: ${app.getVersion()}`);
+    // Restore last preset (must be after app.ready so app.getPath works)
+    currentConfigFile = loadSettings().lastPreset || CONFIG_NAME;
     ensureConfig();
     createWindow();
     mainWindow = BrowserWindow.getAllWindows()[0];
