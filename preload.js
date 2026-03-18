@@ -39,6 +39,14 @@ contextBridge.exposeInMainWorld("electronAPI", {
   openDetailWindow: (data) => ipcRenderer.invoke("open-detail-window", data),
   onSetUtteranceData: (callback) => ipcRenderer.on("set-utterance-data", (event, data) => callback(data)),
   
+  // SDB Connect
+  sdbConnect: (ip) => ipcRenderer.invoke("sdb-connect", ip),
+
+  // Find in page (Ctrl+F)
+  findInPage: (text, options) => ipcRenderer.invoke("find-in-page", text, options),
+  stopFindInPage: () => ipcRenderer.invoke("stop-find-in-page"),
+  onFoundInPage: (callback) => ipcRenderer.on("found-in-page", (event, result) => callback(result)),
+
   // Preset management
   listPresets: () => ipcRenderer.invoke("list-presets"),
   switchPreset: (fileName) => ipcRenderer.invoke("switch-preset", fileName),
