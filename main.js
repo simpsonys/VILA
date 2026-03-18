@@ -133,6 +133,9 @@ function createWindow() {
   // open developer tools automatically (helps diagnose startup issues)
   // This will detach so the main window is unobstructed.
   // win.webContents.openDevTools({ mode: 'detach' });
+  win.webContents.on('found-in-page', (e, result) => {
+    win.webContents.send('found-in-page', result);
+  });
   win.loadFile("index.html");
 }
 
@@ -199,6 +202,7 @@ ipcMain.handle("add-custom-preset", async () => {
   try {
     const result = await dialog.showOpenDialog({
       title: "Select Custom Preset Config File",
+      defaultPath: __dirname,
       properties: ["openFile"],
       filters: [
         { name: "JSON Config", extensions: ["json"] },
@@ -402,6 +406,29 @@ ipcMain.on("cancel-file-read", () => {
     activeFileStream.destroy();
     activeFileStream = null;
   }
+});
+
+// IPC: SDB Connect — runs "sdb connect <ip>" then "sdb root on"
+ipcMain.handle("sdb-connect", async (event, ip) => {
+  if (!ip) return { success: false, error: 'No IP/device specified' };
+  return new Promise((resolve) => {
+    exec(`sdb connect ${ip}`, (err, stdout, stderr) => {
+      const connectOut = (stdout || '') + (stderr || '');
+      if (err) {
+        resolve({ success: false, error: err.message, connectOutput: connectOut, step: 'connect' });
+        return;
+      }
+      exec('sdb root on', (err2, stdout2, stderr2) => {
+        const rootOut = (stdout2 || '') + (stderr2 || '');
+        resolve({
+          success: !err2,
+          connectOutput: connectOut.trim(),
+          rootOutput: rootOut.trim(),
+          error: err2 ? err2.message : null,
+        });
+      });
+    });
+  });
 });
 
 // IPC: Start sdb dlogutil stream
@@ -850,25 +877,24 @@ ipcMain.handle("install-update", async () => {
   autoUpdater.quitAndInstall();
 });
 
+// IPC: Find in page (Ctrl+F)
+ipcMain.handle("find-in-page", (event, text, options) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || !text) return;
+  win.webContents.findInPage(text, options || {});
+});
+ipcMain.handle("stop-find-in-page", (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win) return;
+  win.webContents.stopFindInPage('clearSelection');
+});
+
 // Auto-updater event listeners
 let mainWindow;
 let detailWindows = []; // Track open detail windows
 
-// ── Single Instance Lock ──
-const gotTheLock = app.requestSingleInstanceLock();
-
-if (!gotTheLock) {
-  app.quit();
-} else {
-  app.on("second-instance", (event, commandLine, workingDirectory) => {
-    // Someone tried to run a second instance, we should focus our window.
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
-
-  app.whenReady().then(() => {
+// ── Multi-Instance Support (no single-instance lock) ──
+app.whenReady().then(() => {
     writeToLog('info', `VILA App Started, Version: ${app.getVersion()}`);
     // Restore last preset (must be after app.ready so app.getPath works)
     currentConfigFile = loadSettings().lastPreset || CONFIG_NAME;
@@ -926,8 +952,7 @@ if (!gotTheLock) {
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
-  });
-}
+});
 
 // Update mainWindow reference when new window is created
 app.on("window-all-closed", () => {

@@ -28,6 +28,7 @@ let isLiveStreaming = false;
 let liveViewMode = 'table'; // 'table' or 'sequence'
 let screenshotSavePath = null;
 let tablePageSize = 50; // rows shown in main results table (50/100/150/Infinity=ALL)
+let disabledPatternGroups = new Set(); // pattern groups disabled by user toggle
 
 // Streaming state
 let streamLineBuffer = "";
@@ -312,6 +313,37 @@ function updateDefaultCommands() {
 }
 
 
+// SDB Connect: runs "sdb connect <ip>" then "sdb root on"
+async function sdbConnectDevice() {
+    const ip = (document.getElementById('sdbDeviceInput').value || '').trim();
+    if (!ip) { showErrorToast('SDB Device IP를 입력해주세요.'); return; }
+    if (!window.electronAPI || !window.electronAPI.sdbConnect) {
+        showErrorToast('sdbConnect API not available (Electron only).');
+        return;
+    }
+    const btn = document.getElementById('sdbConnectBtn');
+    const status = document.getElementById('sdbConnectStatus');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Connecting...'; }
+    if (status) status.textContent = '';
+    try {
+        const result = await window.electronAPI.sdbConnect(ip);
+        if (result.success) {
+            if (status) { status.textContent = '✓ Connected'; status.style.color = '#34d399'; }
+            showToast(`SDB connected: ${ip}\n${result.rootOutput || ''}`);
+        } else {
+            const errMsg = result.error || `Step: ${result.step}`;
+            if (status) { status.textContent = '✗ Failed'; status.style.color = '#f87171'; }
+            showErrorToast(`SDB connect failed: ${errMsg}\n${result.connectOutput || ''}`);
+        }
+    } catch (e) {
+        if (status) { status.textContent = '✗ Error'; status.style.color = '#f87171'; }
+        showErrorToast('SDB connect error: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '🔌 Connect'; }
+        setTimeout(() => { if (status) status.textContent = ''; }, 5000);
+    }
+}
+
 // Initialize column filters
 function initColumnFilters() {
     columnFilters = {};
@@ -546,6 +578,184 @@ async function resetCurrentPreset() {
     }
 }
 
+// ── Pattern List Modal ──
+function showPatternListModal() {
+    if (!CONFIG) return;
+    const modal = document.getElementById('patternListModal');
+    const content = document.getElementById('patternListContent');
+    if (!modal || !content) return;
+
+    content.innerHTML = renderPatternListHTML();
+    modal.style.display = 'flex';
+}
+
+function closePatternListModal() {
+    const modal = document.getElementById('patternListModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function renderPatternListHTML() {
+    if (!CONFIG) return '<div style="color:#64748b;font-size:12px">No config loaded.</div>';
+    let html = '';
+
+    // Helper: render a simple pattern array section
+    const renderSimpleSection = (title, arr) => {
+        if (!arr || arr.length === 0) return '';
+        let s = `<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#60dcfa;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">${title}</div>`;
+        arr.forEach(p => {
+            const patStr = typeof p === 'string' ? p : (p && p.pattern) || JSON.stringify(p);
+            s += `<div style="font-size:11px;color:#94a3b8;font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all">${escapeHtml(patStr)}</div>`;
+        });
+        s += '</div>';
+        return s;
+    };
+
+    // pattern_groups — with toggle
+    if (CONFIG.pattern_groups && Object.keys(CONFIG.pattern_groups).length > 0) {
+        html += `<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#a78bfa;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Pattern Groups (Sequence Diagram)</div>`;
+        for (const [key, grp] of Object.entries(CONFIG.pattern_groups)) {
+            const name = (grp && grp.name) || key;
+            const disabled = disabledPatternGroups.has(key);
+            const patterns = (grp && grp.patterns) || [];
+            html += `<div style="background:#080a10;border:1px solid ${disabled ? '#2a3040' : '#1e3a5c'};border-radius:6px;padding:8px 10px;margin-bottom:6px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${patterns.length ? 4 : 0}px">
+                    <span style="font-size:12px;font-weight:600;color:${disabled ? '#4a5568' : '#e2e8f0'}">${escapeHtml(name)}</span>
+                    <button onclick="togglePatternGroup('${escapeHtml(key)}')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${disabled ? '#2a3040' : '#1e3a5c'};background:${disabled ? '#1a1a2a' : '#1a2d4a'};color:${disabled ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">
+                        ${disabled ? 'OFF' : 'ON'}
+                    </button>
+                </div>
+                ${patterns.map(p => `<div style="font-size:10px;color:${disabled ? '#374151' : '#64748b'};font-family:Consolas,monospace;word-break:break-all">${escapeHtml(typeof p === 'string' ? p : (p && p.pattern) || '')}</div>`).join('')}
+            </div>`;
+        }
+        html += '</div>';
+    }
+
+    html += renderSimpleSection('Start Patterns', CONFIG.start_patterns);
+    html += renderSimpleSection('End Patterns', CONFIG.end_patterns);
+    html += renderSimpleSection('Success Patterns', CONFIG.success_patterns);
+    html += renderSimpleSection('Failure Patterns', CONFIG.failure_patterns);
+
+    if (CONFIG.utterance_patterns && Object.keys(CONFIG.utterance_patterns).length > 0) {
+        html += `<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#34d399;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Utterance Patterns</div>`;
+        for (const [key, up] of Object.entries(CONFIG.utterance_patterns)) {
+            const pat = (up && up.pattern) || up;
+            html += `<div style="font-size:11px;color:#94a3b8;font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all"><span style="color:#34d399;font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String(pat))}</div>`;
+        }
+        html += '</div>';
+    }
+
+    if (CONFIG.clickable_patterns && Object.keys(CONFIG.clickable_patterns).length > 0) {
+        html += `<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#fbbf24;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Clickable Patterns</div>`;
+        for (const [key, cp] of Object.entries(CONFIG.clickable_patterns)) {
+            html += `<div style="font-size:11px;color:#94a3b8;font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all"><span style="color:#fbbf24;font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String((cp && cp.pattern) || cp))}</div>`;
+        }
+        html += '</div>';
+    }
+
+    return html || '<div style="color:#64748b;font-size:12px">No patterns defined in this preset.</div>';
+}
+
+function togglePatternGroup(key) {
+    if (disabledPatternGroups.has(key)) {
+        disabledPatternGroups.delete(key);
+    } else {
+        disabledPatternGroups.add(key);
+    }
+    // Re-render modal content
+    const content = document.getElementById('patternListContent');
+    if (content) content.innerHTML = renderPatternListHTML();
+    // Re-render sequence if visible
+    if (liveViewMode === 'sequence') updateLiveSeqView();
+    const seqTab = document.getElementById('seqTabContent');
+    if (seqTab && seqTab.style.display !== 'none') refreshSeqTabIfVisible();
+}
+
+function enableAllPatternGroups() {
+    disabledPatternGroups.clear();
+    const content = document.getElementById('patternListContent');
+    if (content) content.innerHTML = renderPatternListHTML();
+    if (liveViewMode === 'sequence') updateLiveSeqView();
+    refreshSeqTabIfVisible();
+}
+
+function disableAllPatternGroups() {
+    if (CONFIG && CONFIG.pattern_groups) {
+        Object.keys(CONFIG.pattern_groups).forEach(k => disabledPatternGroups.add(k));
+    }
+    const content = document.getElementById('patternListContent');
+    if (content) content.innerHTML = renderPatternListHTML();
+    if (liveViewMode === 'sequence') updateLiveSeqView();
+    refreshSeqTabIfVisible();
+}
+
+function refreshSeqTabIfVisible() {
+    // Re-render sequence tab if it's currently shown
+    const seqTabContent = document.getElementById('seqTabContent');
+    if (seqTabContent && seqTabContent.style.display !== 'none') {
+        const seqContent = document.getElementById('seqContent');
+        if (seqContent && entries && entries.length > 0) {
+            const puml = generateCombinedPlantUML(entries);
+            seqContent.innerHTML = renderSeqSVGMain(puml);
+        }
+    }
+}
+
+// ── Find Bar (Ctrl+F) ──
+let _findBarVisible = false;
+
+function showFindBar() {
+    const bar = document.getElementById('findBar');
+    if (!bar) return;
+    bar.style.display = 'flex';
+    _findBarVisible = true;
+    const input = document.getElementById('findBarInput');
+    if (input) { input.focus(); input.select(); }
+}
+
+function hideFindBar() {
+    const bar = document.getElementById('findBar');
+    if (!bar || !_findBarVisible) return;
+    bar.style.display = 'none';
+    _findBarVisible = false;
+    const countEl = document.getElementById('findBarCount');
+    if (countEl) countEl.textContent = '';
+    if (window.electronAPI && window.electronAPI.stopFindInPage) {
+        window.electronAPI.stopFindInPage();
+    }
+}
+
+function onFindBarInput() {
+    const input = document.getElementById('findBarInput');
+    const text = input ? input.value : '';
+    const countEl = document.getElementById('findBarCount');
+    if (!text) {
+        if (countEl) { countEl.textContent = ''; countEl.style.color = '#64748b'; }
+        if (window.electronAPI && window.electronAPI.stopFindInPage) window.electronAPI.stopFindInPage();
+        return;
+    }
+    if (window.electronAPI && window.electronAPI.findInPage) {
+        window.electronAPI.findInPage(text, { forward: true, findNext: false });
+    }
+}
+
+function onFindBarKeydown(e) {
+    if (e.key === 'Enter') {
+        e.preventDefault();
+        findBarStep(e.shiftKey ? -1 : 1);
+    } else if (e.key === 'Escape') {
+        hideFindBar();
+    }
+}
+
+function findBarStep(direction) {
+    const input = document.getElementById('findBarInput');
+    const text = input ? input.value : '';
+    if (!text) return;
+    if (window.electronAPI && window.electronAPI.findInPage) {
+        window.electronAPI.findInPage(text, { forward: direction >= 0, findNext: true });
+    }
+}
+
 function getDefaultConfig() {
     return {
         start_patterns: ["cmd_from_mockapp", "REQUEST OPEN SERVER"],
@@ -635,13 +845,33 @@ function setupEventListeners() {
     });
 
     document.addEventListener('keydown', e => {
-        if (e.key === 'Escape') closeModal();
+        if (e.key === 'Escape') {
+            closeModal();
+            hideFindBar();
+        }
         // zoom shortcuts
         if (e.ctrlKey) {
             if (e.key === '+' || e.key === '=') { changeZoom(0.1); e.preventDefault(); }
             else if (e.key === '-') { changeZoom(-0.1); e.preventDefault(); }
+            else if (e.key === 'f' || e.key === 'F') { e.preventDefault(); showFindBar(); }
         }
     });
+
+    // Setup found-in-page result listener
+    if (window.electronAPI && window.electronAPI.onFoundInPage) {
+        window.electronAPI.onFoundInPage((result) => {
+            const countEl = document.getElementById('findBarCount');
+            if (countEl) {
+                if (result.matches === 0) {
+                    countEl.textContent = 'No results';
+                    countEl.style.color = '#f87171';
+                } else {
+                    countEl.textContent = `${result.activeMatchOrdinal} / ${result.matches}`;
+                    countEl.style.color = '#64748b';
+                }
+            }
+        });
+    }
 
     // wheel zoom
     document.addEventListener('wheel', e => {
@@ -937,12 +1167,20 @@ function prepareStreamingParsing(name, enc, fileSize) {
 }
 
 let rawLogLines = []; // Store lines for raw log viewer search
+let isLivePaused = false;   // Pause flag: buffer incoming data, don't render/parse
+let livePauseBuffer = [];   // Chunks buffered while paused
 
 function handleStreamingChunk(chunkData) {
     if (parseInterrupt) {
         if (window.electronAPI && window.electronAPI.cancelFileRead) {
             window.electronAPI.cancelFileRead();
         }
+        return;
+    }
+
+    // If paused, buffer the chunk and skip processing
+    if (isLivePaused) {
+        livePauseBuffer.push(chunkData);
         return;
     }
     
@@ -1813,6 +2051,11 @@ function toggleLiveStream() {
         document.getElementById('progressPanel').style.display = 'none';
         document.getElementById('resultsArea').style.display = 'block';
         
+        // Reset pause state on new stream start
+        isLivePaused = false;
+        livePauseBuffer = [];
+        updateLivePauseBtn();
+
         // Show live log viewer, reset to table mode
         document.getElementById('rawLogViewer').style.display = 'block';
         document.getElementById('rawLogContent').textContent = '';
@@ -1826,7 +2069,11 @@ function toggleLiveStream() {
         }
 
     } else {
-        // Stop the stream
+        // Stop the stream — also reset pause state
+        isLivePaused = false;
+        livePauseBuffer = [];
+        updateLivePauseBtn();
+
         window.electronAPI.stopLogStream();
         liveLogBtn.innerHTML = '🔴 Start Live Log';
         liveLogBtn.classList.remove('active');
@@ -1843,6 +2090,32 @@ function toggleLiveStream() {
         // Finalize the UI and show the progress summary
         finishParsing();
         document.getElementById('progressPanel').style.display = 'block';
+    }
+}
+
+function toggleLivePause() {
+    if (!isLiveStreaming) return;
+    isLivePaused = !isLivePaused;
+    updateLivePauseBtn();
+
+    if (!isLivePaused && livePauseBuffer.length > 0) {
+        // Resume: flush all buffered chunks in order
+        const buffered = livePauseBuffer.splice(0);
+        buffered.forEach(chunk => handleStreamingChunk(chunk));
+    }
+}
+
+function updateLivePauseBtn() {
+    const btn = document.getElementById('livePauseBtn');
+    if (!btn) return;
+    if (isLivePaused) {
+        btn.innerHTML = '▶ Resume';
+        btn.style.color = '#34d399';
+        btn.style.borderColor = 'rgba(52,211,153,0.4)';
+    } else {
+        btn.innerHTML = '⏸ Pause';
+        btn.style.color = '#94a3b8';
+        btn.style.borderColor = '';
     }
 }
 
@@ -2085,7 +2358,7 @@ function renderSeqSVGMain(src) {
         return null;
     };
     const safeUrl = url => url.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-    const PAD = 24, PW = 150, PH = 34, BASE_MH = 36, SEP_H = 22, FONT = 11, NOTE_MAX = 80, LH = 13, FK = 8;
+    const PAD = 24, PW = 150, PH = 34, BASE_MH = 36, SEP_H = 30, FONT = 11, NOTE_MAX = 80, LH = 13, FK = 8;
     const visW = s => { let w = 0; for (let i = 0; i < (s || '').length; i++) { const c = (s || '').charCodeAt(i); w += (c >= 0xAC00 && c <= 0xD7AF || c >= 0x1100 && c <= 0x11FF || c >= 0x4E00 && c <= 0x9FFF) ? 2 : 1; } return w; };
     const wL = (lb, max) => { if (!lb || visW(lb) <= max) return [lb || '']; const r = []; let st = lb; while (visW(st) > max) { let w = 0, idx = 0; while (idx < st.length) { const c = st.charCodeAt(idx); const cw = (c >= 0xAC00 && c <= 0xD7AF || c >= 0x1100 && c <= 0x11FF || c >= 0x4E00 && c <= 0x9FFF) ? 2 : 1; if (w + cw > max) break; w += cw; idx++; } r.push(st.slice(0, idx)); st = st.slice(idx); } r.push(st); return r; };
     const mLines = msgs.map(m => m.type === 'note' ? wL(m.lb, NOTE_MAX) : [m.lb || '']);
@@ -2131,7 +2404,17 @@ function renderSeqSVGMain(src) {
         if (msg.type === 'sep') {
             const sy = yArr;
             s += '<line x1="' + PAD + '" y1="' + sy + '" x2="' + (W - PAD) + '" y2="' + sy + '" stroke="#2a3a5c" stroke-width="1.5" stroke-dasharray="4,2"/>';
-            if (msg.lb) { const tw = Math.round(msg.lb.length * 7) + 20; s += '<rect x="' + (W / 2 - tw / 2 - 4) + '" y="' + (sy - 9) + '" width="' + (tw + 8) + '" height="18" fill="#0a0d14"/>'; s += '<text x="' + (W / 2) + '" y="' + (sy + 4) + '" text-anchor="middle" font-size="' + FONT + '" fill="#94a3b8" font-family="Segoe UI,system-ui,sans-serif">' + ev(msg.lb) + '</text>'; }
+            if (msg.lb) {
+                const SEP_FONT = 13;
+                const tw = Math.round(msg.lb.length * 7.5) + 24;
+                // Parse entry index: label format "#N: utterance text"
+                const idxMatch = msg.lb.match(/^#(\d+):/);
+                const entryIdx = idxMatch ? parseInt(idxMatch[1]) - 1 : -1;
+                const clickable = entryIdx >= 0;
+                const clickAttr = clickable ? ' onclick="openDetailFromTable(' + entryIdx + ')" style="cursor:pointer"' : '';
+                s += '<rect' + clickAttr + ' x="' + (W / 2 - tw / 2 - 4) + '" y="' + (sy - 11) + '" width="' + (tw + 8) + '" height="22" rx="3" fill="#0d1520" stroke="' + (clickable ? '#1e3a5c' : '#1e2433') + '" stroke-width="1"/>';
+                s += '<text' + clickAttr + ' x="' + (W / 2) + '" y="' + (sy + 5) + '" text-anchor="middle" font-size="' + SEP_FONT + '" font-weight="600" fill="' + (clickable ? '#60dcfa' : '#94a3b8') + '" font-family="Segoe UI,system-ui,sans-serif">' + ev(msg.lb) + '</text>';
+            }
         } else if (msg.type === 'note') {
             const nx = msg._nx, NW = msg._nw, NH = msg._nh, ny = msg.pos === 'over' ? yArr - NH / 2 : yArr - (rh + BASE_MH) / 2;
             const tx = nx + 12, ty0 = ny + 15;
@@ -2143,7 +2426,8 @@ function renderSeqSVGMain(src) {
             s += '<text text-anchor="start" font-size="' + FONT + '" fill="#e2e8f0" font-family="Consolas,monospace">';
             wls.forEach((ln, li) => { s += '<tspan x="' + tx + '" y="' + (ty0 + li * LH) + '">' + ev(ln) + '</tspan>'; });
             s += '</text>';
-            const _cp = JSON.stringify(msg.lb).replace(/"/g, '&quot;');
+            const _cpRaw = (msg.lb || '').replace(/^L\d+:\s*/, '');
+            const _cp = JSON.stringify(_cpRaw).replace(/"/g, '&quot;');
             s += '<g onclick="(function(e){e.stopPropagation();navigator.clipboard.writeText(' + _cp + ').catch(function(){})})(event)" style="cursor:pointer"><rect x="' + (nx + NW - 30) + '" y="' + (ny + 4) + '" width="16" height="12" rx="2" fill="rgba(251,191,36,0.15)" stroke="rgba(251,191,36,0.4)" stroke-width="1"/><text x="' + (nx + NW - 22) + '" y="' + (ny + 13) + '" text-anchor="middle" font-size="9" fill="#fbbf24" font-family="sans-serif">&#x29C9;</text></g>';
         } else {
             const x1 = cx[msg.f] != null ? cx[msg.f] : PAD + PW / 2, x2 = cx[msg.t] != null ? cx[msg.t] : PAD + PW / 2;
@@ -2240,7 +2524,8 @@ function generatePlantUMLForEntry(entry) {
         }
 
         // pattern_groups — patterns can be strings or {pattern, PlantUML?} objects
-        for (const [, grpCfg] of Object.entries(CONFIG.pattern_groups || {})) {
+        for (const [grpKey, grpCfg] of Object.entries(CONFIG.pattern_groups || {})) {
+            if (disabledPatternGroups.has(grpKey)) continue; // skip disabled groups
             for (const pEntry of (grpCfg.patterns || [])) {
                 const ps = patStr(pEntry);
                 if (!ps) continue;
