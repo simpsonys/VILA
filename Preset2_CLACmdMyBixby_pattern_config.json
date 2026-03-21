@@ -6,6 +6,9 @@
   "end_patterns": [
     "GRPC CLOSE OUT"
   ],
+  "server_patterns": [
+    "GetConfig: (.*)"
+  ],
   "success_patterns": [
     "DialogText: (.*)"
   ],

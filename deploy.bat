@@ -1,55 +1,116 @@
 @echo off
-chcp 65001 > nul
+setlocal enabledelayedexpansion
 
-echo Git 변경 사항을 확인합니다...
-git status --porcelain > git_status.tmp
-set /p GIT_STATUS=<git_status.tmp
-del git_status.tmp
+echo ================================================================
+echo  VILA Deploy: version bump + commit + tag + push
+echo  GitHub Actions will build and release automatically.
+echo ================================================================
+echo.
 
-if "%GIT_STATUS%"=="" (
-    echo 변경 사항이 없습니다. 릴리스를 진행하려면 먼저 커밋할 내용이 있어야 합니다.
+:: Read current version using node (always available with npm)
+for /f "delims=" %%v in ('node -e "process.stdout.write(require(\"./package.json\").version)"') do set "CURRENT_VERSION=%%v"
+
+if "!CURRENT_VERSION!"=="" (
+    echo [ERROR] Cannot read version from package.json
     pause
-    exit /b
+    exit /b 1
 )
 
-echo Submodule 변경 사항을 커밋합니다...
-git submodule foreach "git add . && git commit -m \"Update submodule\" || exit 0"
+echo Current version: !CURRENT_VERSION!
+echo.
 
-set /p VERSION_TYPE="릴리스할 버전을 입력하세요 (major, minor, patch, or specific version): "
-if "%VERSION_TYPE%"=="" (
-    echo 버전이 필요합니다.
+:: Show git status
+echo [Git Status]
+git status --short
+echo.
+
+:: Prompt for version type
+set /p "VERSION_TYPE=Version type (major / minor / patch / or 1.2.3): "
+if "!VERSION_TYPE!"=="" (
+    echo Version type is required.
     pause
-    exit /b
+    exit /b 1
+)
+echo.
+
+:: Prompt for commit message
+set /p "COMMIT_MSG=Commit message (leave blank for auto): "
+if "!COMMIT_MSG!"=="" set "COMMIT_MSG=Release"
+echo.
+
+:: Bump version in package.json only (no git ops)
+:: Capture output directly — some npm versions return errorlevel 1 even on success
+echo Bumping version...
+for /f "delims=" %%v in ('npm version !VERSION_TYPE! --no-git-tag-version 2^>^&1') do set "NPM_OUT=%%v"
+
+:: Verify by reading actual new version
+for /f "delims=" %%v in ('node -e "process.stdout.write(require(\"./package.json\").version)"') do set "NEW_VERSION=%%v"
+
+if "!NEW_VERSION!"=="!CURRENT_VERSION!" (
+    echo [ERROR] Version was not changed. npm output: !NPM_OUT!
+    echo Check version format: major / minor / patch / or 1.2.3
+    pause
+    exit /b 1
 )
 
-set /p COMMIT_MESSAGE="커밋 메시지를 입력하세요 (비워두면 'Release v[version]' 사용): "
+if "!NEW_VERSION!"=="" (
+    echo [ERROR] Could not read new version. npm output: !NPM_OUT!
+    pause
+    exit /b 1
+)
 
+echo !CURRENT_VERSION! -^> !NEW_VERSION!
+echo.
+
+:: Stage all changes
+echo Staging changes...
 git add .
 
-if defined COMMIT_MESSAGE (
-    npm version %VERSION_TYPE% -m "%COMMIT_MESSAGE%"
-) else (
-    npm version %VERSION_TYPE%
-)
-
+:: Commit
+echo Creating commit...
+git commit -m "!COMMIT_MSG! (v!NEW_VERSION!)"
 if errorlevel 1 (
-    echo 버전 업데이트 실패.
+    echo [ERROR] Commit failed.
     pause
-    exit /b
+    exit /b 1
 )
 
-echo 원격 저장소에 푸시합니다...
-git push --recurse-submodules=on-demand
+:: Create tag
+echo Creating tag: v!NEW_VERSION!
+git tag v!NEW_VERSION!
+if errorlevel 1 (
+    echo [ERROR] Tag creation failed. Tag may already exist.
+    pause
+    exit /b 1
+)
+
+echo.
+
+:: Push commits
+echo Pushing commits...
+git push
+if errorlevel 1 (
+    echo [ERROR] Push failed. Check network and authentication.
+    pause
+    exit /b 1
+)
+
+:: Push tags — triggers GitHub Actions
+echo Pushing tags (triggers GitHub Actions)...
 git push --tags
-
-echo 빌드 및 배포를 시작합니다...
-npx electron-builder --publish always
-
 if errorlevel 1 (
-    echo 배포 실패.
+    echo [ERROR] Tag push failed.
     pause
-    exit /b
+    exit /b 1
 )
 
-echo 성공적으로 배포되었습니다.
+echo.
+echo ================================================================
+echo  Done!  !CURRENT_VERSION! -^> !NEW_VERSION!  ^(tag: v!NEW_VERSION!^)
+echo.
+echo  GitHub Actions build status:
+echo  https://github.com/simpsonys/VILA/actions
+echo ================================================================
+echo.
 pause
+endlocal

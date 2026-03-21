@@ -29,6 +29,8 @@ let liveViewMode = 'table'; // 'table' or 'sequence'
 let screenshotSavePath = null;
 let tablePageSize = 50; // rows shown in main results table (50/100/150/Infinity=ALL)
 let disabledPatternGroups = new Set(); // pattern groups disabled by user toggle
+let disabledPatternCategories = new Set(); // pattern categories disabled: 'utterance', 'clickable', 'success', 'failure'
+let currentServer = null; // current server being tested (from server_patterns)
 
 // Streaming state
 let streamLineBuffer = "";
@@ -598,13 +600,18 @@ function renderPatternListHTML() {
     if (!CONFIG) return '<div style="color:#64748b;font-size:12px">No config loaded.</div>';
     let html = '';
 
-    // Helper: render a simple pattern array section
-    const renderSimpleSection = (title, arr) => {
+    // Helper: render a pattern array section with ON/OFF toggle
+    const renderSimpleSection = (title, arr, catKey, titleColor) => {
         if (!arr || arr.length === 0) return '';
-        let s = `<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#60dcfa;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">${title}</div>`;
+        const color = titleColor || '#60dcfa';
+        const disabled = catKey ? disabledPatternCategories.has(catKey) : false;
+        const toggleBtn = catKey
+            ? `<button onclick="togglePatternCategory('${catKey}')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${disabled ? '#2a3040' : '#1e3a5c'};background:${disabled ? '#1a1a2a' : '#1a2d4a'};color:${disabled ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${disabled ? 'OFF' : 'ON'}</button>`
+            : '';
+        let s = `<div style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.5px">${title}</div>${toggleBtn}</div>`;
         arr.forEach(p => {
             const patStr = typeof p === 'string' ? p : (p && p.pattern) || JSON.stringify(p);
-            s += `<div style="font-size:11px;color:#94a3b8;font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all">${escapeHtml(patStr)}</div>`;
+            s += `<div style="font-size:11px;color:${disabled ? '#374151' : '#94a3b8'};font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all">${escapeHtml(patStr)}</div>`;
         });
         s += '</div>';
         return s;
@@ -630,24 +637,26 @@ function renderPatternListHTML() {
         html += '</div>';
     }
 
-    html += renderSimpleSection('Start Patterns', CONFIG.start_patterns);
-    html += renderSimpleSection('End Patterns', CONFIG.end_patterns);
-    html += renderSimpleSection('Success Patterns', CONFIG.success_patterns);
-    html += renderSimpleSection('Failure Patterns', CONFIG.failure_patterns);
+    html += renderSimpleSection('Start Patterns', CONFIG.start_patterns, 'start', '#60dcfa');
+    html += renderSimpleSection('End Patterns', CONFIG.end_patterns, 'end', '#60dcfa');
+    html += renderSimpleSection('Success Patterns', CONFIG.success_patterns, 'success', '#34d399');
+    html += renderSimpleSection('Failure Patterns', CONFIG.failure_patterns, 'failure', '#f87171');
 
     if (CONFIG.utterance_patterns && Object.keys(CONFIG.utterance_patterns).length > 0) {
-        html += `<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#34d399;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Utterance Patterns</div>`;
+        const uttDisabled = disabledPatternCategories.has('utterance');
+        html += `<div style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:#34d399;text-transform:uppercase;letter-spacing:0.5px">Utterance Patterns</div><button onclick="togglePatternCategory('utterance')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${uttDisabled ? '#2a3040' : '#1e3a5c'};background:${uttDisabled ? '#1a1a2a' : '#1a2d4a'};color:${uttDisabled ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${uttDisabled ? 'OFF' : 'ON'}</button></div>`;
         for (const [key, up] of Object.entries(CONFIG.utterance_patterns)) {
             const pat = (up && up.pattern) || up;
-            html += `<div style="font-size:11px;color:#94a3b8;font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all"><span style="color:#34d399;font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String(pat))}</div>`;
+            html += `<div style="font-size:11px;color:${uttDisabled ? '#374151' : '#94a3b8'};font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all"><span style="color:${uttDisabled ? '#374151' : '#34d399'};font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String(pat))}</div>`;
         }
         html += '</div>';
     }
 
     if (CONFIG.clickable_patterns && Object.keys(CONFIG.clickable_patterns).length > 0) {
-        html += `<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#fbbf24;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Clickable Patterns</div>`;
+        const clkDisabled = disabledPatternCategories.has('clickable');
+        html += `<div style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:0.5px">Clickable Patterns</div><button onclick="togglePatternCategory('clickable')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${clkDisabled ? '#2a3040' : '#1e3a5c'};background:${clkDisabled ? '#1a1a2a' : '#1a2d4a'};color:${clkDisabled ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${clkDisabled ? 'OFF' : 'ON'}</button></div>`;
         for (const [key, cp] of Object.entries(CONFIG.clickable_patterns)) {
-            html += `<div style="font-size:11px;color:#94a3b8;font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all"><span style="color:#fbbf24;font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String((cp && cp.pattern) || cp))}</div>`;
+            html += `<div style="font-size:11px;color:${clkDisabled ? '#374151' : '#94a3b8'};font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all"><span style="color:${clkDisabled ? '#374151' : '#fbbf24'};font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String((cp && cp.pattern) || cp))}</div>`;
         }
         html += '</div>';
     }
@@ -670,8 +679,21 @@ function togglePatternGroup(key) {
     if (seqTab && seqTab.style.display !== 'none') refreshSeqTabIfVisible();
 }
 
+function togglePatternCategory(cat) {
+    if (disabledPatternCategories.has(cat)) {
+        disabledPatternCategories.delete(cat);
+    } else {
+        disabledPatternCategories.add(cat);
+    }
+    const content = document.getElementById('patternListContent');
+    if (content) content.innerHTML = renderPatternListHTML();
+    if (liveViewMode === 'sequence') updateLiveSeqView();
+    refreshSeqTabIfVisible();
+}
+
 function enableAllPatternGroups() {
     disabledPatternGroups.clear();
+    disabledPatternCategories.clear();
     const content = document.getElementById('patternListContent');
     if (content) content.innerHTML = renderPatternListHTML();
     if (liveViewMode === 'sequence') updateLiveSeqView();
@@ -682,6 +704,7 @@ function disableAllPatternGroups() {
     if (CONFIG && CONFIG.pattern_groups) {
         Object.keys(CONFIG.pattern_groups).forEach(k => disabledPatternGroups.add(k));
     }
+    ['utterance', 'clickable', 'success', 'failure', 'start', 'end'].forEach(c => disabledPatternCategories.add(c));
     const content = document.getElementById('patternListContent');
     if (content) content.innerHTML = renderPatternListHTML();
     if (liveViewMode === 'sequence') updateLiveSeqView();
@@ -731,17 +754,19 @@ function onFindBarInput() {
     if (!text) {
         if (countEl) { countEl.textContent = ''; countEl.style.color = '#64748b'; }
         if (window.electronAPI && window.electronAPI.stopFindInPage) window.electronAPI.stopFindInPage();
-        return;
     }
-    if (window.electronAPI && window.electronAPI.findInPage) {
-        window.electronAPI.findInPage(text, { forward: true, findNext: false });
-    }
+    // Search is triggered only on Enter keydown, not on every keystroke
 }
 
 function onFindBarKeydown(e) {
     if (e.key === 'Enter') {
         e.preventDefault();
-        findBarStep(e.shiftKey ? -1 : 1);
+        const input = document.getElementById('findBarInput');
+        const text = input ? input.value : '';
+        if (!text) return;
+        if (window.electronAPI && window.electronAPI.findInPage) {
+            window.electronAPI.findInPage(text, { forward: !e.shiftKey, findNext: false });
+        }
     } else if (e.key === 'Escape') {
         hideFindBar();
     }
@@ -1162,6 +1187,7 @@ function prepareStreamingParsing(name, enc, fileSize) {
     streamInBlock = false;
     streamStartPatterns = new RegExp(CONFIG.start_patterns.join('|'));
     streamEndPatterns = new RegExp(CONFIG.end_patterns.join('|'));
+    currentServer = null;
     streamTotalBytes = fileSize || 0;
     streamBytesProcessed = 0;
 }
@@ -1252,6 +1278,10 @@ function processStreamLines(lines) {
                 liveStatusEl.textContent = '새로운 발화 분석중...';
                 liveStatusEl.style.color = '#fbbf24';
             }
+            if (liveViewMode === 'sequence') {
+                clearTimeout(window._liveSeqTimer);
+                window._liveSeqTimer = setTimeout(updateLiveSeqView, 150);
+            }
         } else if (isE && streamInBlock) {
             streamBlockBuffer.push(t);
             streamBlockLineNumbers.push(streamLineCount);
@@ -1268,9 +1298,27 @@ function processStreamLines(lines) {
         } else if (streamInBlock) {
             streamBlockBuffer.push(t);
             streamBlockLineNumbers.push(streamLineCount);
+            // Update live sequence diagram immediately (debounced)
+            if (liveViewMode === 'sequence') {
+                clearTimeout(window._liveSeqTimer);
+                window._liveSeqTimer = setTimeout(updateLiveSeqView, 150);
+            }
+        }
+
+        // Detect current server from server_patterns (outside of block)
+        if (CONFIG && CONFIG.server_patterns && CONFIG.server_patterns.length > 0) {
+            for (const pat of CONFIG.server_patterns) {
+                try {
+                    const m = t.match(new RegExp(pat));
+                    if (m) {
+                        currentServer = (m[1] || m[0]).trim();
+                        break;
+                    }
+                } catch {}
+            }
         }
     }
-    
+
     // Throttle UI updates for performance if needed, but for now update every chunk
     updateProgress(streamBytesProcessed, streamTotalBytes, streamFoundCount, streamMatchedCount);
 }
@@ -1545,8 +1593,12 @@ function finishParsing() {
 }
 
 function renderStats() {
+    const serverStat = currentServer
+        ? `<div class="stat" style="border-right:1px solid #1e2433;padding-right:14px;margin-right:6px"><span class="stat-label">Current Server</span><span class="stat-val" style="color:#34d399;font-size:11px;font-family:Consolas,monospace;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;vertical-align:middle" title="${escapeHtml(currentServer)}">${escapeHtml(currentServer)}</span></div>`
+        : '';
+
     if (CONFIG && CONFIG.enable_result_judgment === false) {
-        document.getElementById('statsBar').innerHTML = `<div class="stat"><span class="stat-val" style="color:#60dcfa">${entries.length}</span><span class="stat-label">Total Utterances</span></div>`;
+        document.getElementById('statsBar').innerHTML = serverStat + `<div class="stat"><span class="stat-val" style="color:#60dcfa">${entries.length}</span><span class="stat-label">Total Utterances</span></div>`;
         return { total: entries.length };
     }
 
@@ -1559,7 +1611,7 @@ function renderStats() {
     }
     s.passRate = (s.success + s.fail) > 0 ? ((s.success / (s.success + s.fail)) * 100).toFixed(1) : '-';
 
-    document.getElementById('statsBar').innerHTML = [
+    document.getElementById('statsBar').innerHTML = serverStat + [
         { l: 'Total', v: s.total, c: '#60dcfa' }, { l: 'Success', v: s.success, c: '#34d399' },
         { l: 'Fail', v: s.fail, c: '#f87171' }, { l: 'Partial', v: s.partial, c: '#fbbf24' },
         { l: 'Unknown', v: s.unknown, c: '#94a3b8' }, { l: 'Pass Rate', v: s.passRate === '-' ? '-' : s.passRate + '%', c: '#a78bfa' }
@@ -2134,6 +2186,7 @@ function clearLiveLog() {
     streamInBlock = false;
     streamFoundCount = 0;
     streamMatchedCount = 0;
+    currentServer = null;
     const liveSeqContent = document.getElementById('liveSeqContent');
     if (liveSeqContent) liveSeqContent.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center">No entries yet. Start live log to see sequence diagram...</div>';
 
@@ -2315,11 +2368,21 @@ function updateLiveSeqView() {
     if (liveViewMode !== 'sequence') return;
     const seqContent = document.getElementById('liveSeqContent');
     if (!seqContent) return;
-    if (!entries || entries.length === 0) {
+
+    // Include the partial in-progress block so diagram updates line-by-line
+    const allEntries = entries ? [...entries] : [];
+    if (streamInBlock && streamBlockBuffer.length > 0) {
+        try {
+            const partialEntry = parseBlock(streamBlockBuffer, streamBlockLineNumbers);
+            if (partialEntry) allEntries.push(partialEntry);
+        } catch {}
+    }
+
+    if (!allEntries.length) {
         seqContent.innerHTML = '<div style="color:#64748b;font-size:12px;padding:20px;text-align:center">No entries yet. Start live log to see sequence diagram...</div>';
         return;
     }
-    const puml = generateCombinedPlantUML(entries);
+    const puml = generateCombinedPlantUML(allEntries);
     seqContent.innerHTML = renderSeqSVGMain(puml);
 }
 
@@ -2426,7 +2489,7 @@ function renderSeqSVGMain(src) {
             s += '<text text-anchor="start" font-size="' + FONT + '" fill="#e2e8f0" font-family="Consolas,monospace">';
             wls.forEach((ln, li) => { s += '<tspan x="' + tx + '" y="' + (ty0 + li * LH) + '">' + ev(ln) + '</tspan>'; });
             s += '</text>';
-            const _cpRaw = (msg.lb || '').replace(/^L\d+:\s*/, '');
+            const _cpRaw = wls.map(ln => ln.replace(/^L\d+:\s*/, '')).join('\n').trim();
             const _cp = JSON.stringify(_cpRaw).replace(/"/g, '&quot;');
             s += '<g onclick="(function(e){e.stopPropagation();navigator.clipboard.writeText(' + _cp + ').catch(function(){})})(event)" style="cursor:pointer"><rect x="' + (nx + NW - 30) + '" y="' + (ny + 4) + '" width="16" height="12" rx="2" fill="rgba(251,191,36,0.15)" stroke="rgba(251,191,36,0.4)" stroke-width="1"/><text x="' + (nx + NW - 22) + '" y="' + (ny + 13) + '" text-anchor="middle" font-size="9" fill="#fbbf24" font-family="sans-serif">&#x29C9;</text></g>';
         } else {
@@ -2495,6 +2558,7 @@ function generatePlantUMLForEntry(entry) {
         const lineNum = (entry.lineNumbers && entry.lineNumbers[li]) ? entry.lineNumbers[li] : (li + 1);
 
         // utterance_patterns
+        if (!disabledPatternCategories.has('utterance')) {
         for (const [, cfg] of Object.entries(CONFIG.utterance_patterns || {})) {
             if (!cfg.PlantUML) continue;
             try {
@@ -2508,19 +2572,22 @@ function generatePlantUMLForEntry(entry) {
                 }
             } catch {}
         }
+        }
 
         // clickable_patterns
-        for (const [, cfg] of Object.entries(CONFIG.clickable_patterns || {})) {
-            if (!cfg.PlantUML) continue;
-            try {
-                const m = line.match(new RegExp(cfg.pattern));
-                if (m) {
-                    const value = extractValue(line, m);
-                    for (const tmpl of pumlTemplates(cfg.PlantUML)) {
-                        plantItems.push({ text: applyPuml(tmpl, value, lineNum), isTitle: false });
+        if (!disabledPatternCategories.has('clickable')) {
+            for (const [, cfg] of Object.entries(CONFIG.clickable_patterns || {})) {
+                if (!cfg.PlantUML) continue;
+                try {
+                    const m = line.match(new RegExp(cfg.pattern));
+                    if (m) {
+                        const value = extractValue(line, m);
+                        for (const tmpl of pumlTemplates(cfg.PlantUML)) {
+                            plantItems.push({ text: applyPuml(tmpl, value, lineNum), isTitle: false });
+                        }
                     }
-                }
-            } catch {}
+                } catch {}
+            }
         }
 
         // pattern_groups — patterns can be strings or {pattern, PlantUML?} objects
