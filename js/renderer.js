@@ -28,8 +28,10 @@ let isLiveStreaming = false;
 let liveViewMode = 'table'; // 'table' or 'sequence'
 let screenshotSavePath = null;
 let tablePageSize = 50; // rows shown in main results table (50/100/150/Infinity=ALL)
+let liveTestScreenshotDir = null; // screenshot dir for current live/batch test session
 let disabledPatternGroups = new Set(); // pattern groups disabled by user toggle
 let disabledPatternCategories = new Set(); // pattern categories disabled: 'utterance', 'clickable', 'success', 'failure'
+let disabledIndividualPatterns = new Set(); // individual patterns: 'start:0', 'end:0', 'success:0', 'utterance:key', 'clickable:key'
 let currentServer = null; // current server being tested (from server_patterns)
 
 // Streaming state
@@ -307,7 +309,9 @@ function updateDefaultCommands() {
 
     // Update Screenshot Command
     const screenshotCommandTextarea = document.getElementById('screenshotCommand');
-    if (deviceId) {
+    if (CONFIG && CONFIG.default_screenshot_command) {
+        screenshotCommandTextarea.value = CONFIG.default_screenshot_command.replace(/\$ip|\{deviceId\}/g, deviceId);
+    } else if (deviceId) {
         screenshotCommandTextarea.value = `sdb -s ${deviceId} shell rm -rf /tmp/dump_screen.png\nsdb -s ${deviceId} shell enlightenment_info -dump_screen\nsdb -s ${deviceId} pull /tmp/dump_screen.png yymmdd_hhmmss.png`;
     } else {
         screenshotCommandTextarea.value = `sdb shell rm -rf /tmp/dump_screen.png\nsdb shell enlightenment_info -dump_screen\nsdb pull /tmp/dump_screen.png yymmdd_hhmmss.png`;
@@ -332,6 +336,9 @@ async function sdbConnectDevice() {
         if (result.success) {
             if (status) { status.textContent = '✓ Connected'; status.style.color = '#34d399'; }
             showToast(`SDB connected: ${ip}\n${result.rootOutput || ''}`);
+            if (!isLiveStreaming) {
+                toggleLiveStream();
+            }
         } else {
             const errMsg = result.error || `Step: ${result.step}`;
             if (status) { status.textContent = '✗ Failed'; status.style.color = '#f87171'; }
@@ -600,38 +607,65 @@ function renderPatternListHTML() {
     if (!CONFIG) return '<div style="color:#64748b;font-size:12px">No config loaded.</div>';
     let html = '';
 
-    // Helper: render a pattern array section with ON/OFF toggle
+    // Helper: section-level button state considering individual items
+    const sectionBtnState = (catKey, arr) => {
+        const catOff = disabledPatternCategories.has(catKey);
+        // Section shows OFF if category is off OR all individual items are off
+        const allItemsOff = arr && arr.length > 0 && arr.every((_, i) => disabledIndividualPatterns.has(`${catKey}:${i}`));
+        return catOff || allItemsOff;
+    };
+
+    // Helper: render a pattern array section with section-level + per-item ON/OFF toggles
     const renderSimpleSection = (title, arr, catKey, titleColor) => {
         if (!arr || arr.length === 0) return '';
         const color = titleColor || '#60dcfa';
-        const disabled = catKey ? disabledPatternCategories.has(catKey) : false;
+        const catDisabled = catKey ? disabledPatternCategories.has(catKey) : false;
+        const secOff = catKey ? sectionBtnState(catKey, arr) : false;
         const toggleBtn = catKey
-            ? `<button onclick="togglePatternCategory('${catKey}')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${disabled ? '#2a3040' : '#1e3a5c'};background:${disabled ? '#1a1a2a' : '#1a2d4a'};color:${disabled ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${disabled ? 'OFF' : 'ON'}</button>`
+            ? `<button onclick="togglePatternCategory('${catKey}')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${secOff ? '#2a3040' : '#1e3a5c'};background:${secOff ? '#1a1a2a' : '#1a2d4a'};color:${secOff ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${secOff ? 'OFF' : 'ON'}</button>`
             : '';
         let s = `<div style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:0.5px">${title}</div>${toggleBtn}</div>`;
-        arr.forEach(p => {
+        arr.forEach((p, i) => {
             const patStr = typeof p === 'string' ? p : (p && p.pattern) || JSON.stringify(p);
-            s += `<div style="font-size:11px;color:${disabled ? '#374151' : '#94a3b8'};font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all">${escapeHtml(patStr)}</div>`;
+            const itemId = `${catKey}:${i}`;
+            const itemOff = disabledIndividualPatterns.has(itemId);
+            const itemEffOff = catDisabled || itemOff;
+            s += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;padding-left:12px;border-left:2px solid ${itemEffOff ? '#1e2433' : '#2a3a5c'}">
+                <div style="flex:1;font-size:11px;color:${itemEffOff ? '#374151' : '#94a3b8'};font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;word-break:break-all">${escapeHtml(patStr)}</div>
+                <button onclick="toggleIndividualPattern('${itemId}')" style="flex-shrink:0;padding:2px 8px;font-size:10px;border-radius:4px;border:1px solid ${itemOff ? '#2a3040' : '#1e3a5c'};background:${itemOff ? '#1a1a2a' : '#1a2d4a'};color:${itemOff ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${itemOff ? 'OFF' : 'ON'}</button>
+            </div>`;
         });
         s += '</div>';
         return s;
     };
 
-    // pattern_groups — with toggle
+    // pattern_groups — with group-level + per-pattern ON/OFF toggles
     if (CONFIG.pattern_groups && Object.keys(CONFIG.pattern_groups).length > 0) {
         html += `<div style="margin-bottom:14px"><div style="font-size:11px;font-weight:700;color:#a78bfa;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.5px">Pattern Groups (Sequence Diagram)</div>`;
         for (const [key, grp] of Object.entries(CONFIG.pattern_groups)) {
             const name = (grp && grp.name) || key;
-            const disabled = disabledPatternGroups.has(key);
+            const grpDisabled = disabledPatternGroups.has(key);
             const patterns = (grp && grp.patterns) || [];
-            html += `<div style="background:#080a10;border:1px solid ${disabled ? '#2a3040' : '#1e3a5c'};border-radius:6px;padding:8px 10px;margin-bottom:6px">
-                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${patterns.length ? 4 : 0}px">
-                    <span style="font-size:12px;font-weight:600;color:${disabled ? '#4a5568' : '#e2e8f0'}">${escapeHtml(name)}</span>
-                    <button onclick="togglePatternGroup('${escapeHtml(key)}')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${disabled ? '#2a3040' : '#1e3a5c'};background:${disabled ? '#1a1a2a' : '#1a2d4a'};color:${disabled ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">
-                        ${disabled ? 'OFF' : 'ON'}
+            // Check if all individual patterns are disabled
+            const allItemsOff = patterns.length > 0 && patterns.every((_, pi) => disabledIndividualPatterns.has(`group:${key}:${pi}`));
+            const effectivelyOff = grpDisabled || allItemsOff;
+            html += `<div style="background:#080a10;border:1px solid ${effectivelyOff ? '#2a3040' : '#1e3a5c'};border-radius:6px;padding:8px 10px;margin-bottom:6px">
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:${patterns.length ? 6 : 0}px">
+                    <span style="font-size:12px;font-weight:600;color:${effectivelyOff ? '#4a5568' : '#e2e8f0'}">${escapeHtml(name)}</span>
+                    <button onclick="togglePatternGroup('${escapeHtml(key)}')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${grpDisabled ? '#2a3040' : '#1e3a5c'};background:${grpDisabled ? '#1a1a2a' : '#1a2d4a'};color:${grpDisabled ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">
+                        ${grpDisabled ? 'OFF' : 'ON'}
                     </button>
                 </div>
-                ${patterns.map(p => `<div style="font-size:10px;color:${disabled ? '#374151' : '#64748b'};font-family:Consolas,monospace;word-break:break-all">${escapeHtml(typeof p === 'string' ? p : (p && p.pattern) || '')}</div>`).join('')}
+                ${patterns.map((p, pi) => {
+                    const itemId = `group:${key}:${pi}`;
+                    const itemOff = disabledIndividualPatterns.has(itemId);
+                    const itemEffOff = grpDisabled || itemOff;
+                    const patText = typeof p === 'string' ? p : (p && p.pattern) || '';
+                    return `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;padding-left:12px;border-left:2px solid ${itemEffOff ? '#1e2433' : '#2a3a5c'}">
+                        <div style="flex:1;font-size:10px;color:${itemEffOff ? '#374151' : '#64748b'};font-family:Consolas,monospace;word-break:break-all">${escapeHtml(patText)}</div>
+                        <button onclick="toggleIndividualPattern('${itemId}')" style="flex-shrink:0;padding:1px 7px;font-size:10px;border-radius:4px;border:1px solid ${itemOff ? '#2a3040' : '#1e3a5c'};background:${itemOff ? '#1a1a2a' : '#1a2d4a'};color:${itemOff ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${itemOff ? 'OFF' : 'ON'}</button>
+                    </div>`;
+                }).join('')}
             </div>`;
         }
         html += '</div>';
@@ -644,19 +678,35 @@ function renderPatternListHTML() {
 
     if (CONFIG.utterance_patterns && Object.keys(CONFIG.utterance_patterns).length > 0) {
         const uttDisabled = disabledPatternCategories.has('utterance');
-        html += `<div style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:#34d399;text-transform:uppercase;letter-spacing:0.5px">Utterance Patterns</div><button onclick="togglePatternCategory('utterance')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${uttDisabled ? '#2a3040' : '#1e3a5c'};background:${uttDisabled ? '#1a1a2a' : '#1a2d4a'};color:${uttDisabled ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${uttDisabled ? 'OFF' : 'ON'}</button></div>`;
+        const uttKeys = Object.keys(CONFIG.utterance_patterns);
+        const allUttOff = uttDisabled || (uttKeys.length > 0 && uttKeys.every(k => disabledIndividualPatterns.has(`utterance:${k}`)));
+        html += `<div style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:#34d399;text-transform:uppercase;letter-spacing:0.5px">Utterance Patterns</div><button onclick="togglePatternCategory('utterance')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${allUttOff ? '#2a3040' : '#1e3a5c'};background:${allUttOff ? '#1a1a2a' : '#1a2d4a'};color:${allUttOff ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${allUttOff ? 'OFF' : 'ON'}</button></div>`;
         for (const [key, up] of Object.entries(CONFIG.utterance_patterns)) {
             const pat = (up && up.pattern) || up;
-            html += `<div style="font-size:11px;color:${uttDisabled ? '#374151' : '#94a3b8'};font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all"><span style="color:${uttDisabled ? '#374151' : '#34d399'};font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String(pat))}</div>`;
+            const itemId = `utterance:${key}`;
+            const itemOff = disabledIndividualPatterns.has(itemId);
+            const itemEffOff = uttDisabled || itemOff;
+            html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;padding-left:12px;border-left:2px solid ${itemEffOff ? '#1e2433' : '#2a3a5c'}">
+                <div style="flex:1;font-size:11px;color:${itemEffOff ? '#374151' : '#94a3b8'};font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;word-break:break-all"><span style="color:${itemEffOff ? '#374151' : '#34d399'};font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String(pat))}</div>
+                <button onclick="toggleIndividualPattern('${itemId}')" style="flex-shrink:0;padding:2px 8px;font-size:10px;border-radius:4px;border:1px solid ${itemOff ? '#2a3040' : '#1e3a5c'};background:${itemOff ? '#1a1a2a' : '#1a2d4a'};color:${itemOff ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${itemOff ? 'OFF' : 'ON'}</button>
+            </div>`;
         }
         html += '</div>';
     }
 
     if (CONFIG.clickable_patterns && Object.keys(CONFIG.clickable_patterns).length > 0) {
         const clkDisabled = disabledPatternCategories.has('clickable');
-        html += `<div style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:0.5px">Clickable Patterns</div><button onclick="togglePatternCategory('clickable')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${clkDisabled ? '#2a3040' : '#1e3a5c'};background:${clkDisabled ? '#1a1a2a' : '#1a2d4a'};color:${clkDisabled ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${clkDisabled ? 'OFF' : 'ON'}</button></div>`;
+        const clkKeys = Object.keys(CONFIG.clickable_patterns);
+        const allClkOff = clkDisabled || (clkKeys.length > 0 && clkKeys.every(k => disabledIndividualPatterns.has(`clickable:${k}`)));
+        html += `<div style="margin-bottom:14px"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:0.5px">Clickable Patterns</div><button onclick="togglePatternCategory('clickable')" style="padding:2px 10px;font-size:10px;border-radius:4px;border:1px solid ${allClkOff ? '#2a3040' : '#1e3a5c'};background:${allClkOff ? '#1a1a2a' : '#1a2d4a'};color:${allClkOff ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${allClkOff ? 'OFF' : 'ON'}</button></div>`;
         for (const [key, cp] of Object.entries(CONFIG.clickable_patterns)) {
-            html += `<div style="font-size:11px;color:${clkDisabled ? '#374151' : '#94a3b8'};font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;margin-bottom:3px;word-break:break-all"><span style="color:${clkDisabled ? '#374151' : '#fbbf24'};font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String((cp && cp.pattern) || cp))}</div>`;
+            const itemId = `clickable:${key}`;
+            const itemOff = disabledIndividualPatterns.has(itemId);
+            const itemEffOff = clkDisabled || itemOff;
+            html += `<div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;padding-left:12px;border-left:2px solid ${itemEffOff ? '#1e2433' : '#2a3a5c'}">
+                <div style="flex:1;font-size:11px;color:${itemEffOff ? '#374151' : '#94a3b8'};font-family:Consolas,monospace;padding:3px 6px;background:#080a10;border-radius:4px;word-break:break-all"><span style="color:${itemEffOff ? '#374151' : '#fbbf24'};font-weight:600">${escapeHtml(key)}:</span> ${escapeHtml(String((cp && cp.pattern) || cp))}</div>
+                <button onclick="toggleIndividualPattern('${itemId}')" style="flex-shrink:0;padding:2px 8px;font-size:10px;border-radius:4px;border:1px solid ${itemOff ? '#2a3040' : '#1e3a5c'};background:${itemOff ? '#1a1a2a' : '#1a2d4a'};color:${itemOff ? '#64748b' : '#60dcfa'};cursor:pointer;font-weight:600">${itemOff ? 'OFF' : 'ON'}</button>
+            </div>`;
         }
         html += '</div>';
     }
@@ -680,10 +730,44 @@ function togglePatternGroup(key) {
 }
 
 function togglePatternCategory(cat) {
-    if (disabledPatternCategories.has(cat)) {
+    const wasDisabled = disabledPatternCategories.has(cat);
+    if (wasDisabled) {
         disabledPatternCategories.delete(cat);
     } else {
         disabledPatternCategories.add(cat);
+    }
+    // Sync: clear all individual-item disables for this category so items follow the section state
+    for (const id of [...disabledIndividualPatterns]) {
+        if (id.startsWith(cat + ':')) disabledIndividualPatterns.delete(id);
+    }
+    const content = document.getElementById('patternListContent');
+    if (content) content.innerHTML = renderPatternListHTML();
+    if (liveViewMode === 'sequence') updateLiveSeqView();
+    refreshSeqTabIfVisible();
+}
+
+function toggleIndividualPattern(id) {
+    if (disabledIndividualPatterns.has(id)) {
+        disabledIndividualPatterns.delete(id);
+        // If parent category was OFF, turning on one item re-enables the category
+        const catKey = id.split(':')[0];
+        if (disabledPatternCategories.has(catKey)) {
+            disabledPatternCategories.delete(catKey);
+            // Set all OTHER items in this category to OFF so overall state matches
+            if (CONFIG) {
+                const getCatItems = (cat) => {
+                    if (cat === 'utterance') return Object.keys(CONFIG.utterance_patterns || {}).map(k => `utterance:${k}`);
+                    if (cat === 'clickable') return Object.keys(CONFIG.clickable_patterns || {}).map(k => `clickable:${k}`);
+                    const arr = CONFIG[`${cat}_patterns`] || [];
+                    return arr.map((_, i) => `${cat}:${i}`);
+                };
+                getCatItems(catKey).forEach(otherId => {
+                    if (otherId !== id) disabledIndividualPatterns.add(otherId);
+                });
+            }
+        }
+    } else {
+        disabledIndividualPatterns.add(id);
     }
     const content = document.getElementById('patternListContent');
     if (content) content.innerHTML = renderPatternListHTML();
@@ -694,6 +778,7 @@ function togglePatternCategory(cat) {
 function enableAllPatternGroups() {
     disabledPatternGroups.clear();
     disabledPatternCategories.clear();
+    disabledIndividualPatterns.clear();
     const content = document.getElementById('patternListContent');
     if (content) content.innerHTML = renderPatternListHTML();
     if (liveViewMode === 'sequence') updateLiveSeqView();
@@ -705,6 +790,7 @@ function disableAllPatternGroups() {
         Object.keys(CONFIG.pattern_groups).forEach(k => disabledPatternGroups.add(k));
     }
     ['utterance', 'clickable', 'success', 'failure', 'start', 'end'].forEach(c => disabledPatternCategories.add(c));
+    // Individual patterns are covered by category-level disabling; no need to add separately
     const content = document.getElementById('patternListContent');
     if (content) content.innerHTML = renderPatternListHTML();
     if (liveViewMode === 'sequence') updateLiveSeqView();
@@ -801,8 +887,8 @@ function getDefaultConfig() {
         },
         default_live_log_command: "sdb -s {deviceId} shell dlogutil -v VOICE_CLIENT",
         table_columns: [
-            { key: "conversationId", label: "Conversation ID", width: "22%", clickable_key: "conversationId" },
-            { key: "requestId", label: "Request ID", width: "12%" },
+            { key: "conversationId", label: "Conversation ID", width: "22%", clickable_key: "conversationId", auto_width: true },
+            { key: "requestId", label: "Request ID", width: "12%", auto_width: true },
             { key: "utterance", label: "Utterance", width: "30%", type: "utterance" },
             { key: "result", label: "Result", width: "8%", type: "badge" },
             { key: "successLine", label: "Success Match", width: "28%", type: "log" }
@@ -1173,6 +1259,10 @@ function prepareStreamingParsing(name, enc, fileSize) {
     sortCol = null;
     sortDir = 'asc';
     sortState = {};
+    // Reset user_resized flags so auto_width recalculates for the new data
+    if (CONFIG && CONFIG.table_columns) {
+        CONFIG.table_columns.forEach(col => { delete col.user_resized; });
+    }
     const searchBox = document.getElementById('searchBox');
     if (searchBox) searchBox.value = '';
     initColumnFilters();
@@ -1185,8 +1275,10 @@ function prepareStreamingParsing(name, enc, fileSize) {
     streamBlockBuffer = [];
     streamBlockLineNumbers = [];
     streamInBlock = false;
-    streamStartPatterns = new RegExp(CONFIG.start_patterns.join('|'));
-    streamEndPatterns = new RegExp(CONFIG.end_patterns.join('|'));
+    const activeStarts = CONFIG.start_patterns.filter((_, i) => !disabledIndividualPatterns.has(`start:${i}`));
+    const activeEnds = CONFIG.end_patterns.filter((_, i) => !disabledIndividualPatterns.has(`end:${i}`));
+    streamStartPatterns = new RegExp((activeStarts.length ? activeStarts : CONFIG.start_patterns).join('|'));
+    streamEndPatterns = new RegExp((activeEnds.length ? activeEnds : CONFIG.end_patterns).join('|'));
     currentServer = null;
     streamTotalBytes = fileSize || 0;
     streamBytesProcessed = 0;
@@ -1368,8 +1460,10 @@ function startParsing(text, name, enc) {
     }
 
     const lines = text.split(/\r?\n|\r/), total = lines.length;
-    const startCombined = new RegExp(CONFIG.start_patterns.join('|'));
-    const endCombined = new RegExp(CONFIG.end_patterns.join('|'));
+    const activeStartPats = CONFIG.start_patterns.filter((_, i) => !disabledIndividualPatterns.has(`start:${i}`));
+    const activeEndPats = CONFIG.end_patterns.filter((_, i) => !disabledIndividualPatterns.has(`end:${i}`));
+    const startCombined = new RegExp((activeStartPats.length ? activeStartPats : CONFIG.start_patterns).join('|'));
+    const endCombined = new RegExp((activeEndPats.length ? activeEndPats : CONFIG.end_patterns).join('|'));
     let buffer = [], bufferLines = [], inBlock = false, idx = 0, found = 0, matched = 0;
     const CHUNK = 3000; // Chunk size for UI responsiveness
 
@@ -1432,6 +1526,7 @@ function parseBlock(lines, lineNumbers = []) {
     if (CONFIG && CONFIG.clickable_patterns) {
         e._allMatches = {};
         for (const [key, cfg] of Object.entries(CONFIG.clickable_patterns)) {
+            if (disabledIndividualPatterns.has(`clickable:${key}`)) continue;
             try {
                 const re = new RegExp(cfg.pattern);
                 const collected = [];
@@ -1451,7 +1546,8 @@ function parseBlock(lines, lineNumbers = []) {
 
     if (!e.utterance) {
         for (const l of lines) {
-            for (const [, cfg] of Object.entries(CONFIG.utterance_patterns)) {
+            for (const [uttKey, cfg] of Object.entries(CONFIG.utterance_patterns)) {
+                if (disabledIndividualPatterns.has(`utterance:${uttKey}`)) continue;
                 try {
                     const re = new RegExp(cfg.pattern);
                     const m = l.match(re);
@@ -1467,8 +1563,14 @@ function parseBlock(lines, lineNumbers = []) {
 
     let hasS = false, hasF = false;
     for (const l of lines) {
-        for (const sp of (CONFIG.success_patterns || [])) { try { if (new RegExp(sp).test(l)) { hasS = true; e.successLine = l; } } catch { if (l.includes(sp)) { hasS = true; e.successLine = l; } } }
-        if (CONFIG.failure_patterns) for (const fp of CONFIG.failure_patterns) { try { if (new RegExp(fp).test(l)) { hasF = true; e.failLines.push(l); } } catch { if (l.includes(fp)) { hasF = true; e.failLines.push(l); } } }
+        (CONFIG.success_patterns || []).forEach((sp, si) => {
+            if (disabledIndividualPatterns.has(`success:${si}`)) return;
+            try { if (new RegExp(sp).test(l)) { hasS = true; e.successLine = l; } } catch { if (l.includes(sp)) { hasS = true; e.successLine = l; } }
+        });
+        if (CONFIG.failure_patterns) CONFIG.failure_patterns.forEach((fp, fi) => {
+            if (disabledIndividualPatterns.has(`failure:${fi}`)) return;
+            try { if (new RegExp(fp).test(l)) { hasF = true; e.failLines.push(l); } } catch { if (l.includes(fp)) { hasF = true; e.failLines.push(l); } }
+        });
     }
 
     if (CONFIG && CONFIG.enable_result_judgment === false) {
@@ -1561,7 +1663,7 @@ function updateProgress(processed, total, found, matched) {
     document.getElementById('progMatched').textContent = matched;
     if (streamingMode) {
         clearTimeout(window._streamRenderTimer);
-        window._streamRenderTimer = setTimeout(() => { renderTable(); updateLiveSeqView(); }, 500);
+        window._streamRenderTimer = setTimeout(() => { autoFitColumns(); renderTable(); updateLiveSeqView(); }, 500);
     }
 }
 
@@ -1589,6 +1691,7 @@ function finishParsing() {
         document.getElementById('screenshotSection').style.display = 'none';
     }
 
+    autoFitColumns();
     renderTable();
 }
 
@@ -1771,10 +1874,52 @@ function onMouseMove(e) {
 }
 
 function onMouseUp() {
+    if (isResizing && currentResizingColIdx >= 0 && CONFIG && CONFIG.table_columns[currentResizingColIdx]) {
+        // Mark as user-resized so autoFitColumns won't override it
+        CONFIG.table_columns[currentResizingColIdx].user_resized = true;
+    }
     isResizing = false;
     currentResizingColIdx = -1;
     document.removeEventListener('mousemove', onMouseMove);
     document.removeEventListener('mouseup', onMouseUp);
+}
+
+function autoFitColumns() {
+    if (!CONFIG || !CONFIG.table_columns || !entries.length) return;
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    // Match actual .td CSS: 13px Consolas
+    ctx.font = '13px Consolas, "IBM Plex Mono", monospace';
+
+    // Extra space per cell: 14px*2 padding + ~36px copy-button + 8px safety margin
+    const CELL_EXTRA = 72;
+
+    let changed = false;
+    CONFIG.table_columns.forEach(col => {
+        if (!col.auto_width) return;
+        if (col.user_resized) return; // preserve manual user resizes
+
+        // Min width: header label
+        let maxW = ctx.measureText(col.label + '  ⇅').width + 48;
+
+        entries.forEach(e => {
+            const val = e[col.key] || '';
+            const w = ctx.measureText(String(val)).width + CELL_EXTRA;
+            if (w > maxW) maxW = w;
+        });
+
+        // Cap between 80px and 480px
+        const newWidth = Math.min(Math.max(Math.ceil(maxW), 80), 480) + 'px';
+        if (col.width !== newWidth) {
+            col.width = newWidth;
+            changed = true;
+        }
+    });
+
+    if (changed) {
+        applyGridTemplateColumns();
+    }
 }
 
 function applyGridTemplateColumns() {
@@ -1849,8 +1994,8 @@ function renderTable() {
             const vb = (b[sortKey] || '').toString().toLowerCase();
             return sortState[sortKey] === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
         });
-    } else if (isLiveStreaming) {
-        // Default to showing the most recent test items at the top in Live mode
+    } else {
+        // Default: newest first (reverse insertion order)
         rows = [...rows].reverse();
     }
 
@@ -2114,6 +2259,8 @@ function toggleLiveStream() {
         setLiveViewMode('table');
         updateDefaultCommands(); // Update commands now that the view is visible
         document.getElementById('screenshotSection').style.display = 'block';
+        document.getElementById('liveTestSection').style.display = 'block';
+        initLiveTest();
 
         // Ensure streaming mode is enabled for live analysis
         if (!streamingMode) {
@@ -2138,6 +2285,7 @@ function toggleLiveStream() {
         // Hide live log viewer
         document.getElementById('rawLogViewer').style.display = 'none';
         document.getElementById('screenshotSection').style.display = 'none';
+        document.getElementById('liveTestSection').style.display = 'none';
 
         // Finalize the UI and show the progress summary
         finishParsing();
@@ -2224,18 +2372,28 @@ async function takeScreenshot() {
         return;
     }
 
+    const screenshotBtn = document.getElementById('screenshotBtn');
+    const container = document.getElementById('screenshotThumbnailContainer');
+
+    if (screenshotBtn) { screenshotBtn.disabled = true; screenshotBtn.textContent = '⏳ Taking...'; }
+    if (container) {
+        container.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;gap:8px;color:#60dcfa;font-size:12px"><div style="width:16px;height:16px;border:2px solid #60dcfa;border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite"></div>Taking screenshot...</div>`;
+    }
+
     try {
         const screenshotPath = await window.electronAPI.runScreenshotCommand({ command, savePath: screenshotSavePath });
         if (screenshotPath) {
             showToast('Screenshot saved!');
             const base64 = await window.electronAPI.readScreenshot(screenshotPath);
             if (base64) {
-                const container = document.getElementById('screenshotThumbnailContainer');
                 container.innerHTML = `<img src="data:image/png;base64,${base64}" style="max-width: 100%; max-height: 100%; border-radius: 8px;">`;
             }
         }
     } catch (err) {
         showErrorToast(`Screenshot failed: ${err.message}`, err.stack);
+        if (container) container.innerHTML = '';
+    } finally {
+        if (screenshotBtn) { screenshotBtn.disabled = false; screenshotBtn.textContent = '📸 Screenshot'; }
     }
 }
 
@@ -2559,7 +2717,8 @@ function generatePlantUMLForEntry(entry) {
 
         // utterance_patterns
         if (!disabledPatternCategories.has('utterance')) {
-        for (const [, cfg] of Object.entries(CONFIG.utterance_patterns || {})) {
+        for (const [uttKey, cfg] of Object.entries(CONFIG.utterance_patterns || {})) {
+            if (disabledIndividualPatterns.has(`utterance:${uttKey}`)) continue;
             if (!cfg.PlantUML) continue;
             try {
                 const m = line.match(new RegExp(cfg.pattern));
@@ -2576,7 +2735,8 @@ function generatePlantUMLForEntry(entry) {
 
         // clickable_patterns
         if (!disabledPatternCategories.has('clickable')) {
-            for (const [, cfg] of Object.entries(CONFIG.clickable_patterns || {})) {
+            for (const [clkKey, cfg] of Object.entries(CONFIG.clickable_patterns || {})) {
+                if (disabledIndividualPatterns.has(`clickable:${clkKey}`)) continue;
                 if (!cfg.PlantUML) continue;
                 try {
                     const m = line.match(new RegExp(cfg.pattern));
@@ -2593,7 +2753,9 @@ function generatePlantUMLForEntry(entry) {
         // pattern_groups — patterns can be strings or {pattern, PlantUML?} objects
         for (const [grpKey, grpCfg] of Object.entries(CONFIG.pattern_groups || {})) {
             if (disabledPatternGroups.has(grpKey)) continue; // skip disabled groups
-            for (const pEntry of (grpCfg.patterns || [])) {
+            for (let pi = 0; pi < (grpCfg.patterns || []).length; pi++) {
+                if (disabledIndividualPatterns.has(`group:${grpKey}:${pi}`)) continue;
+                const pEntry = grpCfg.patterns[pi];
                 const ps = patStr(pEntry);
                 if (!ps) continue;
                 const entryPuml = (typeof pEntry === 'object' && pEntry.PlantUML) ? pEntry.PlantUML : grpCfg.PlantUML;
@@ -2714,13 +2876,12 @@ function mkC(t){if(!t)return esc(t);let r=esc(t);for(const[,c]of Object.entries(
 
     // Screenshots — read as base64 and embed
     let screenshotHtml = '';
-    if (window.electronAPI && currentFilePath) {
+    const _ssArgs2866 = (liveTestScreenshotDir && isLiveStreaming)
+        ? { screenshotDir: liveTestScreenshotDir, conversationId: e.conversationId, requestId: e.requestId }
+        : (currentFilePath ? { logFilePath: currentFilePath, utterance: e.utterance, utteranceIndex: utteranceIndex } : null);
+    if (window.electronAPI && _ssArgs2866) {
         try {
-            const screenshots = await window.electronAPI.getScreenshots({
-                logFilePath: currentFilePath,
-                utterance: e.utterance,
-                utteranceIndex: utteranceIndex
-            });
+            const screenshots = await window.electronAPI.getScreenshots(_ssArgs2866);
             if (screenshots && screenshots.length > 0) {
                 screenshotHtml = '<div class="se"><div class="st" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-top:8px">';
                 for (const ss of screenshots) {
@@ -3062,12 +3223,11 @@ async function displayDetailWindow(data) {
         h += '</div>';
     }
 
-    if (window.electronAPI && currentFilePath) {
-        const screenshots = await window.electronAPI.getScreenshots({
-            logFilePath: currentFilePath,
-            utterance: e.utterance,
-            utteranceIndex: utteranceIndex
-        });
+    const _ssArgs = (liveTestScreenshotDir && isLiveStreaming)
+        ? { screenshotDir: liveTestScreenshotDir, conversationId: e.conversationId, requestId: e.requestId }
+        : (currentFilePath ? { logFilePath: currentFilePath, utterance: e.utterance, utteranceIndex: utteranceIndex } : null);
+    if (window.electronAPI && _ssArgs) {
+        const screenshots = await window.electronAPI.getScreenshots(_ssArgs);
         logToFile('info', `Fetched ${screenshots ? screenshots.length : 0} screenshots for utterance: "${e.utterance}"`);
         if (screenshots && screenshots.length > 0) {
             h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:8px">';
@@ -3078,8 +3238,6 @@ async function displayDetailWindow(data) {
                     <img id="${ssId}" src="" alt="Thumbnail" style="width:100%;height:100%;object-fit:cover;display:none">
                     <div id="${ssId}_icon" style="font-size:24px;opacity:0.5">🖼</div>
                 </div>`;
-                
-                // Load thumbnail asynchronously
                 setTimeout(async () => {
                     try {
                         const base64 = await window.electronAPI.readScreenshot(ss.path);
@@ -3171,12 +3329,11 @@ async function showDetail(idx) {
         h += '</div>';
     }
 
-    if (window.electronAPI && currentFilePath) {
-        const screenshots = await window.electronAPI.getScreenshots({
-            logFilePath: currentFilePath,
-            utterance: e.utterance,
-            utteranceIndex: utteranceIndex
-        });
+    const _ssArgs = (liveTestScreenshotDir && isLiveStreaming)
+        ? { screenshotDir: liveTestScreenshotDir, conversationId: e.conversationId, requestId: e.requestId }
+        : (currentFilePath ? { logFilePath: currentFilePath, utterance: e.utterance, utteranceIndex: utteranceIndex } : null);
+    if (window.electronAPI && _ssArgs) {
+        const screenshots = await window.electronAPI.getScreenshots(_ssArgs);
         logToFile('info', `Fetched ${screenshots ? screenshots.length : 0} screenshots for utterance: "${e.utterance}"`);
         if (screenshots && screenshots.length > 0) {
             h += '<div class="section"><div class="sec-title" style="color:#a78bfa">📸 Screenshots</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:8px">';
@@ -3187,8 +3344,6 @@ async function showDetail(idx) {
                     <img id="${ssId}" src="" alt="Thumbnail" style="width:100%;height:100%;object-fit:cover;display:none">
                     <div id="${ssId}_icon" style="font-size:24px;opacity:0.5">🖼</div>
                 </div>`;
-                
-                // Load thumbnail asynchronously
                 setTimeout(async () => {
                     try {
                         const base64 = await window.electronAPI.readScreenshot(ss.path);
@@ -3605,6 +3760,357 @@ async function handleUpdateAction() { if (updateState === 'ready' && window.elec
 async function openConfigFolder() {
     if (window.electronAPI) { await window.electronAPI.openConfigFolder(); }
     else { showErrorToast('Config file is embedded in the application. Use the Electron desktop version to customize config.'); }
+}
+
+// ── Live Test ──
+let liveTestRunning = false;
+let liveTestStopFlag = false;
+let liveTestAdvancedVisible = false;
+let liveTestConfig = null; // cached advanced settings from CONFIG
+
+function initLiveTest() {
+    if (!CONFIG || !CONFIG.advanced_live_test_setting) return;
+    liveTestConfig = CONFIG.advanced_live_test_setting;
+    renderLiveTestAdvancedPanel();
+}
+
+function renderLiveTestAdvancedPanel() {
+    const container = document.getElementById('liveTestAdvancedContent');
+    if (!container || !liveTestConfig) return;
+
+    // Row 1: Utterance file (full width)
+    let html = `<div style="display:flex;align-items:center;gap:8px">
+        <label style="font-size:11px;color:#64748b;white-space:nowrap;min-width:108px">Utterance File:</label>
+        <input type="text" id="liveTestUtteranceFile" class="command-input" placeholder="Path to utterance .txt file (optional)" style="flex:1;padding:4px 10px;font-size:12px">
+        <button class="btn btn-ghost" onclick="browseUtteranceFile()" style="padding:4px 10px;font-size:11px;white-space:nowrap">📂 Browse</button>
+    </div>`;
+
+    // Row 2: All text-type settings side by side
+    const textSettings = Object.entries(liveTestConfig).filter(([, s]) => s.type === 'text');
+    if (textSettings.length > 0) {
+        html += `<div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">`;
+        for (const [key, setting] of textSettings) {
+            html += `<div style="display:flex;align-items:center;gap:6px;flex:1;min-width:120px">
+                <label style="font-size:11px;color:#64748b;white-space:nowrap">${setting.display}:</label>
+                <input type="text" id="liveTestSetting_${key}" class="command-input" value="${setting.default || ''}" placeholder="-" style="width:80px;flex:1;padding:4px 8px;font-size:12px">
+            </div>`;
+        }
+        html += `</div>`;
+    }
+
+    // Row 3: PreCondition boxes side by side
+    const checkboxSettings = Object.entries(liveTestConfig).filter(([, s]) => s.type === 'check box' && s.Conditions);
+    if (checkboxSettings.length > 0) {
+        html += `<div style="display:flex;gap:10px;align-items:stretch;flex-wrap:wrap">`;
+        for (const [key, setting] of checkboxSettings) {
+            html += `<div style="background:#080a10;border:1px solid #1e2433;border-radius:8px;padding:8px 12px;flex:1;min-width:200px">
+                <div style="font-size:10px;color:#60dcfa;font-weight:700;margin-bottom:6px;letter-spacing:0.5px">${setting.display}</div>`;
+            setting.Conditions.forEach((cond, i) => {
+                html += `<label style="display:flex;align-items:center;gap:6px;cursor:pointer;margin-bottom:3px">
+                    <input type="checkbox" id="liveTestCond_${key}_${i}" ${cond.default ? 'checked' : ''} style="accent-color:#60dcfa;flex-shrink:0">
+                    <span style="font-size:11px;color:#94a3b8">${cond.display}</span>
+                    ${cond.skip_prefix ? `<span style="font-size:10px;color:#334155;white-space:nowrap">(skip&nbsp;"${cond.skip_prefix}")</span>` : ''}
+                </label>`;
+            });
+            html += `</div>`;
+        }
+        html += `</div>`;
+    }
+
+    container.innerHTML = html;
+}
+
+function toggleLiveTestAdvanced() {
+    liveTestAdvancedVisible = !liveTestAdvancedVisible;
+    const panel = document.getElementById('liveTestAdvancedPanel');
+    const btn = document.getElementById('liveTestAdvancedBtn');
+    if (panel) panel.style.display = liveTestAdvancedVisible ? 'block' : 'none';
+    if (btn) btn.textContent = liveTestAdvancedVisible ? '⚙ Advanced ▲' : '⚙ Advanced';
+}
+
+async function browseUtteranceFile() {
+    if (!window.electronAPI || !window.electronAPI.browseUtteranceFile) return;
+    const filePath = await window.electronAPI.browseUtteranceFile();
+    if (filePath) {
+        const input = document.getElementById('liveTestUtteranceFile');
+        if (input) input.value = filePath;
+    }
+}
+
+function getLiveTestCommand(utterance) {
+    if (!CONFIG || !CONFIG.default_live_test_command) return null;
+    const ip = (document.getElementById('sdbDeviceInput').value || '').trim();
+    return CONFIG.default_live_test_command
+        .replace(/\$ip/g, ip)
+        .replace(/\$utterance/g, utterance);
+}
+
+function parseLiveTestRange(rangeStr, totalLines) {
+    if (!rangeStr || !rangeStr.trim()) {
+        return Array.from({ length: totalLines }, (_, i) => i); // all lines
+    }
+    const indices = new Set();
+    const parts = rangeStr.split(',').map(s => s.trim());
+    for (const part of parts) {
+        if (part.endsWith('-')) {
+            const start = parseInt(part.slice(0, -1)) - 1;
+            for (let i = start; i < totalLines; i++) indices.add(i);
+        } else if (part.includes('-')) {
+            const [a, b] = part.split('-').map(s => parseInt(s) - 1);
+            for (let i = a; i <= b && i < totalLines; i++) indices.add(i);
+        } else {
+            const n = parseInt(part) - 1;
+            if (n >= 0 && n < totalLines) indices.add(n);
+        }
+    }
+    return [...indices].sort((a, b) => a - b);
+}
+
+function sanitizeForFilename(str) {
+    if (!str) return '';
+    return str.replace(/[ \\\/'":*?<>|]/g, '_').substring(0, 60);
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function runTestCommand(utterance) {
+    const cmd = getLiveTestCommand(utterance);
+    if (!cmd || !window.electronAPI || !window.electronAPI.runCommand) {
+        showErrorToast('runCommand API not available or no command configured.');
+        return false;
+    }
+    try {
+        await window.electronAPI.runCommand(cmd);
+        return true;
+    } catch (e) {
+        showErrorToast(`Test command failed: ${e.message}`);
+        return false;
+    }
+}
+
+async function runConditionCommands(condKey, utterance) {
+    if (!liveTestConfig || !liveTestConfig[condKey] || !liveTestConfig[condKey].Conditions) return;
+    const setting = liveTestConfig[condKey];
+    const ip = (document.getElementById('sdbDeviceInput').value || '').trim();
+
+    for (let i = 0; i < setting.Conditions.length; i++) {
+        const cond = setting.Conditions[i];
+        const checkbox = document.getElementById(`liveTestCond_${condKey}_${i}`);
+        if (!checkbox || !checkbox.checked) continue;
+
+        // Check skip_prefix
+        if (cond.skip_prefix && utterance && utterance.startsWith(cond.skip_prefix)) continue;
+
+        const cmd = cond.command.replace(/\$ip/g, ip).replace(/\$utterance/g, utterance || '');
+        if (window.electronAPI && window.electronAPI.runCommand) {
+            try {
+                await window.electronAPI.runCommand(cmd);
+            } catch (e) {
+                console.warn(`Condition command failed: ${e.message}`);
+            }
+        }
+    }
+}
+
+// Compute screenshot save dir: sibling "screenshot" folder of utterance file, or fallback to global save path
+function computeLiveTestScreenshotDir(utteranceFilePath) {
+    if (utteranceFilePath) {
+        const sep = utteranceFilePath.includes('\\') ? '\\' : '/';
+        const dir = utteranceFilePath.replace(/[/\\][^/\\]+$/, '');
+        return dir + sep + 'screenshot';
+    }
+    return screenshotSavePath;
+}
+
+async function takeTestScreenshot(utterance, delaySec, screenshotPath) {
+    // Wait for the delay
+    await sleep(delaySec * 1000);
+
+    // Get latest entry info
+    const latestEntry = entries.length > 0 ? entries[entries.length - 1] : null;
+    const convId = sanitizeForFilename(latestEntry ? (latestEntry.conversationId || 'noConvId') : 'noConvId');
+    const reqId = sanitizeForFilename(latestEntry ? (latestEntry.requestId || 'noReqId') : 'noReqId');
+    const utt = sanitizeForFilename(utterance);
+    const delayStr = String(delaySec).padStart(2, '0');
+    const customFileName = `${convId}_${reqId}_${utt}_${delayStr}.png`;
+
+    const command = document.getElementById('screenshotCommand') ? document.getElementById('screenshotCommand').value : '';
+    if (!command || !screenshotPath) return null;
+
+    if (window.electronAPI && window.electronAPI.runScreenshotCommandNamed) {
+        try {
+            const path = await window.electronAPI.runScreenshotCommandNamed({ command, savePath: screenshotPath, customFileName });
+            return path;
+        } catch (e) {
+            console.warn(`Test screenshot failed: ${e.message}`);
+            return null;
+        }
+    }
+    return null;
+}
+
+async function sendLiveTest() {
+    const input = document.getElementById('liveTestInput');
+    const utterance = input ? input.value.trim() : '';
+    if (!utterance) return;
+
+    const statusEl = document.getElementById('liveTestStatus');
+    const sendBtn = document.getElementById('liveTestSendBtn');
+
+    if (sendBtn) sendBtn.disabled = true;
+    if (statusEl) statusEl.textContent = `Sending: "${utterance}"...`;
+
+    // Run PreConditionEach for single test
+    await runConditionCommands('PreConditionEach', utterance);
+
+    // Get actual utterance (strip skip_prefix if present)
+    let actualUtterance = utterance;
+    if (liveTestConfig && liveTestConfig.PreConditionEach && liveTestConfig.PreConditionEach.Conditions) {
+        for (const cond of liveTestConfig.PreConditionEach.Conditions) {
+            if (cond.skip_prefix && utterance.startsWith(cond.skip_prefix)) {
+                actualUtterance = utterance.slice(cond.skip_prefix.length);
+                break;
+            }
+        }
+    }
+
+    const ok = await runTestCommand(actualUtterance);
+
+    if (ok) {
+        if (statusEl) statusEl.textContent = `Sent: "${actualUtterance}"`;
+        // Handle screenshot delays
+        const ssDelayInput = document.getElementById('liveTestSetting_ScreenShotDelay');
+        const ssDelayStr = ssDelayInput ? ssDelayInput.value.trim() : (liveTestConfig && liveTestConfig.ScreenShotDelay ? liveTestConfig.ScreenShotDelay.default : '');
+        const uttFileEl = document.getElementById('liveTestUtteranceFile');
+        const uttFile = uttFileEl ? uttFileEl.value.trim() : '';
+        liveTestScreenshotDir = computeLiveTestScreenshotDir(uttFile);
+        if (ssDelayStr && liveTestScreenshotDir) {
+            const delays = ssDelayStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n));
+            for (const d of delays) {
+                takeTestScreenshot(actualUtterance, d, liveTestScreenshotDir);
+            }
+        }
+        if (input) input.value = '';
+    }
+
+    if (sendBtn) sendBtn.disabled = false;
+    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+}
+
+async function startBatchTest() {
+    if (liveTestRunning) return;
+
+    const utteranceFilePath = document.getElementById('liveTestUtteranceFile') ? document.getElementById('liveTestUtteranceFile').value.trim() : '';
+    liveTestScreenshotDir = computeLiveTestScreenshotDir(utteranceFilePath);
+    const rangeInput = document.getElementById('liveTestSetting_TestRange');
+    const testDelayInput = document.getElementById('liveTestSetting_TestDelay');
+    const ssDelayInput = document.getElementById('liveTestSetting_ScreenShotDelay');
+    const statusEl = document.getElementById('liveTestStatus');
+
+    const testDelay = parseFloat(testDelayInput ? testDelayInput.value : (liveTestConfig && liveTestConfig.TestDelay ? liveTestConfig.TestDelay.default : '5')) || 5;
+    const ssDelayStr = ssDelayInput ? ssDelayInput.value.trim() : (liveTestConfig && liveTestConfig.ScreenShotDelay ? liveTestConfig.ScreenShotDelay.default : '');
+    const ssDelays = ssDelayStr ? ssDelayStr.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n)) : [];
+    const rangeStr = rangeInput ? rangeInput.value.trim() : '';
+
+    let utterances = [];
+
+    // Get utterances from file if specified
+    if (utteranceFilePath && window.electronAPI && window.electronAPI.readTextFile) {
+        try {
+            const content = await window.electronAPI.readTextFile(utteranceFilePath);
+            if (content) {
+                const lines = content.split(/\r?\n/).filter(l => l.trim());
+                const indices = parseLiveTestRange(rangeStr, lines.length);
+                utterances = indices.map(i => lines[i]);
+            }
+        } catch (e) {
+            showErrorToast(`Failed to read utterance file: ${e.message}`);
+            return;
+        }
+    }
+
+    // Add single input utterance if any
+    const singleInput = document.getElementById('liveTestInput');
+    const singleUtterance = singleInput ? singleInput.value.trim() : '';
+    if (singleUtterance && !utterances.includes(singleUtterance)) {
+        utterances.unshift(singleUtterance);
+    }
+
+    if (utterances.length === 0) {
+        showErrorToast('No utterances to test. Enter an utterance or select a file.');
+        return;
+    }
+
+    liveTestRunning = true;
+    liveTestStopFlag = false;
+
+    const runBtn = document.getElementById('liveTestRunBtn');
+    const stopBtn = document.getElementById('liveTestStopBtn');
+    const sendBtn = document.getElementById('liveTestSendBtn');
+    if (runBtn) runBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = 'block';
+    if (sendBtn) sendBtn.disabled = true;
+
+    // Run PreConditionOnce
+    if (statusEl) statusEl.textContent = 'Running PreConditionOnce...';
+    await runConditionCommands('PreConditionOnce', null);
+
+    for (let i = 0; i < utterances.length && !liveTestStopFlag; i++) {
+        const rawUtterance = utterances[i];
+
+        // Check skip_prefix to determine actual utterance and whether to run EachCondition
+        let actualUtterance = rawUtterance;
+        let skipEachCondition = false;
+        if (liveTestConfig && liveTestConfig.PreConditionEach && liveTestConfig.PreConditionEach.Conditions) {
+            for (const cond of liveTestConfig.PreConditionEach.Conditions) {
+                if (cond.skip_prefix && rawUtterance.startsWith(cond.skip_prefix)) {
+                    actualUtterance = rawUtterance.slice(cond.skip_prefix.length);
+                    skipEachCondition = true;
+                    break;
+                }
+            }
+        }
+
+        if (statusEl) statusEl.textContent = `[${i+1}/${utterances.length}] ${actualUtterance}`;
+
+        // Run PreConditionEach (unless skip_prefix matched)
+        if (!skipEachCondition) {
+            await runConditionCommands('PreConditionEach', actualUtterance);
+        }
+
+        const ok = await runTestCommand(actualUtterance);
+        if (!ok) continue;
+
+        // Schedule screenshots
+        if (ssDelays.length > 0 && liveTestScreenshotDir) {
+            ssDelays.forEach(d => {
+                takeTestScreenshot(actualUtterance, d, liveTestScreenshotDir);
+            });
+        }
+
+        // Wait TestDelay before next utterance
+        if (i < utterances.length - 1 && !liveTestStopFlag) {
+            if (statusEl) statusEl.textContent = `[${i+1}/${utterances.length}] Waiting ${testDelay}s...`;
+            await sleep(testDelay * 1000);
+        }
+    }
+
+    liveTestRunning = false;
+    liveTestStopFlag = false;
+
+    if (runBtn) runBtn.style.display = 'block';
+    if (stopBtn) stopBtn.style.display = 'none';
+    if (sendBtn) sendBtn.disabled = false;
+    if (statusEl) {
+        statusEl.textContent = liveTestStopFlag ? 'Stopped.' : 'Batch test complete!';
+        setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+    }
+}
+
+function stopBatchTest() {
+    liveTestStopFlag = true;
 }
 
 // ── Boot ──

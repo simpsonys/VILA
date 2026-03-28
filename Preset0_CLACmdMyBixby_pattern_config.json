@@ -83,11 +83,44 @@
   },
   "default_sdb_device": "192.168.250.250:26101",
   "default_live_log_command": "node mock-sdb.js",
+  "default_live_test_command": "sdb -s $ip shell launch_app com.example.voice-app cmd_from_mockapp $utterance",
+  "advanced_live_test_setting": {
+    "TestDelay": {
+      "display": "Test Delay",
+      "type": "text",
+	  "default" : "5"
+    },
+    "ScreenShotDelay": {
+      "display": "ScreenShot Delay",
+      "type": "text",
+	  "default" : "5,10"
+    },
+    "TestRange": {
+      "display": "Test Range",
+      "type": "text",
+	  "default" : ""
+    },
+    "PreConditionOnce": {
+      "display": "PreCondition for ALL Test",
+      "type": "check box",
+	  "Conditions": [
+          { "display": "Disable ScreenSavor", "default": true, "command": "echo \"Disable ScreenShot $ip\";echo \"done\"" },
+          { "display": "Disable VAC (use Perplexity)", "default": false, "command": "echo \"Disable VAC $ip\";echo \"done\"" }
+      ]
+    },
+    "PreConditionEach": {
+      "display": "PreCondition for every Single Test",
+      "type": "check box",
+	  "Conditions": [
+          { "display": "Reset ConversatoinID", "default": true, "command": "echo \"Reset ConversatoinID $ip\";echo \"done\"", "skip_prefix": "->"  }
+      ]
+    }
+  },
   "enable_result_judgment": false,
   "table_columns": [
-    { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId" },
-    { "key": "requestId", "label": "Request ID", "width": "12%" },
-    { "key": "capsuleGoal", "label": "Capsule Goal", "width": "12%" },
+    { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId", "auto_width": true },
+    { "key": "requestId", "label": "Request ID", "width": "12%", "auto_width": true },
+    { "key": "capsuleGoal", "label": "Capsule Goal", "width": "12%", "auto_width": true },
     { "key": "utterance", "label": "Utterance", "width": "28%", "type": "utterance" },
     { "key": "successLine", "label": "Success Match", "width": "28%", "type": "log" }
   ]

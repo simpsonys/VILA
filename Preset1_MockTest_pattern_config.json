@@ -1,0 +1,120 @@
+{
+  "start_patterns": [
+    "cmd_from_mockapp",
+    "kAsr2Response"
+  ],
+  "end_patterns": [
+    "GRPC CLOSE OUT"
+  ],
+  "server_patterns": [
+    "GetConfig: (.*)"
+  ],
+  "success_patterns": [
+    "DialogText: (.*)"
+  ],
+  "failure_patterns": [
+    "result_code\\[(?!SUCCESS)(.+)\\]"
+  ],
+  "clickable_patterns": {
+    "conversationId": {
+      "pattern": "conversationId\\[([^\\]]+)\\]",
+      "url_template1": null,
+      "url_template2": null,
+      "display_name": "ConversationID",
+      "PlantUML": "BixbyClient -> BixbyServer: {value}"
+    },
+    "requestId": {
+      "pattern": "requestId\\[([^\\]]+)\\]",
+      "url_template": null,
+      "display_name": "RequestID",
+      "PlantUML": "note over: {value}"
+    },
+    "capsuleGoal": {
+      "pattern": "setExecutionCapsuleGoal\\(\\d+\\)\\s*>\\s*(.*)",
+      "url_template": null,
+      "display_name": "Capsule Goal",
+      "PlantUML": [
+        "BixbyClient -> BixbyServer: Capsule Goal",
+        "note right: {value}"
+      ]
+    }
+  },
+  "utterance_patterns": {
+    "cmd_from_mockapp": {
+      "pattern": "cmd_from_mockapp\\s*[,\\s]\\s*(.*)",
+      "utterance": "{value}",
+      "PlantUML": "title {value}"
+    }
+  },
+  "pattern_groups": {
+    "MakeMetaDataParams": {
+      "name": "MakeMetaDataParam",
+      "patterns": [
+        { "pattern": "MakeMetaDataParams(.*)", "PlantUML": "note over: {value}" },
+        { "pattern": "GetConfig(.*)", "PlantUML": "note left: {value}" }
+      ]
+    },
+    "Actions": {
+      "name": "Action",
+      "patterns": [
+        { "pattern": "PROCESS ACTION URL", "PlantUML": "BixbyServer -> BixbyClient: {value}" },
+        { "pattern": "result_code", "PlantUML": "CompanionApp --> BixbyClient: {value}" }
+      ]
+    }
+  },
+
+  "default_sdb_device": "127.0.0.1:26101",
+  "default_live_log_command": "node mock-live-log.js",
+  "default_live_test_command": "node mock-live-test.js $utterance",
+  "default_screenshot_command": "node mock-screenshot.js yymmdd_hhmmss.png",
+
+  "advanced_live_test_setting": {
+    "TestDelay": {
+      "display": "Test Delay (s)",
+      "type": "text",
+      "default": "3"
+    },
+    "ScreenShotDelay": {
+      "display": "ScreenShot Delay (s)",
+      "type": "text",
+      "default": "2,5"
+    },
+    "TestRange": {
+      "display": "Test Range",
+      "type": "text",
+      "default": ""
+    },
+    "PreConditionOnce": {
+      "display": "PreCondition for ALL Test",
+      "type": "check box",
+      "Conditions": [
+        {
+          "display": "Init Mock State",
+          "default": true,
+          "command": "node -e \"const fs=require('fs'),os=require('os'),p=require('path');fs.writeFileSync(p.join(os.tmpdir(),'vila_mock_state.json'),JSON.stringify({resetNext:true}));fs.writeFileSync(p.join(os.tmpdir(),'vila_mock_queue.json'),'[]');console.log('done')\""
+        }
+      ]
+    },
+    "PreConditionEach": {
+      "display": "PreCondition for every Single Test",
+      "type": "check box",
+      "Conditions": [
+        {
+          "display": "Reset ConversationID",
+          "default": true,
+          "command": "node mock-reset-conv.js",
+          "skip_prefix": "->"
+        }
+      ]
+    }
+  },
+
+  "enable_result_judgment": false,
+  "table_columns": [
+    { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId", "auto_width": true },
+    { "key": "requestId",      "label": "Request ID",      "width": "12%", "auto_width": true },
+    { "key": "capsuleGoal",    "label": "Capsule Goal",    "width": "15%", "auto_width": true },
+    { "key": "utterance",      "label": "Utterance",       "width": "25%", "type": "utterance" },
+    { "key": "successLine",    "label": "Response",        "width": "28%", "type": "log" }
+  ]
+}

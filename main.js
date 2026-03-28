@@ -449,7 +449,7 @@ ipcMain.on("start-log-stream", (event, command) => {
 
   try {
     writeToLog('info', `Attempting to start command: ${cmd} with args: ${args.join(' ')}`);
-    dlogProcess = spawn(cmd, args);
+    dlogProcess = spawn(cmd, args, { cwd: __dirname });
 
     dlogProcess.stdout.on('data', (data) => {
       event.sender.send('log-stream-data', data.toString());
@@ -550,27 +550,37 @@ ipcMain.handle("reveal-screenshot-in-explorer", async (event, filePath) => {
 });
 
 // IPC: Run screenshot command
-ipcMain.handle("run-screenshot-command", async (event, { command, savePath }) => {
+ipcMain.handle("run-screenshot-command", async (event, { command, savePath, customFileName }) => {
   const commands = command.split(/\r?\n/).filter(c => c.trim() !== '');
   let finalPath = null;
+  // Ensure save directory exists (e.g., utterance-file-based screenshot subfolder)
+  try { fs.mkdirSync(savePath, { recursive: true }); } catch (_) {}
 
   for (let cmd of commands) {
     // Replace placeholder for filename
     if (cmd.includes("yymmdd_hhmmss.png")) {
-      const now = new Date();
-      const timestamp = now.getFullYear().toString().slice(2) +
-                        String(now.getMonth() + 1).padStart(2, '0') +
-                        String(now.getDate()).padStart(2, '0') + '_' +
-                        String(now.getHours()).padStart(2, '0') +
-                        String(now.getMinutes()).padStart(2, '0') +
-                        String(now.getSeconds()).padStart(2, '0');
-      const fileName = `${timestamp}.png`;
+      let fileName;
+      if (customFileName) {
+        fileName = customFileName;
+      } else {
+        const now = new Date();
+        const timestamp = now.getFullYear().toString().slice(2) +
+                          String(now.getMonth() + 1).padStart(2, '0') +
+                          String(now.getDate()).padStart(2, '0') + '_' +
+                          String(now.getHours()).padStart(2, '0') +
+                          String(now.getMinutes()).padStart(2, '0') +
+                          String(now.getSeconds()).padStart(2, '0');
+        fileName = `${timestamp}.png`;
+      }
       finalPath = path.join(savePath, fileName);
-      cmd = cmd.replace("yymmdd_hhmmss.png", fileName);
+      // Pass absolute path so the script saves to the right folder
+      // regardless of the working directory used for execution
+      cmd = cmd.replace("yymmdd_hhmmss.png", finalPath);
     }
-    
+
     await new Promise((resolve, reject) => {
-      exec(cmd, { cwd: savePath }, (error, stdout, stderr) => {
+      // Use __dirname so relative scripts like "node mock-screenshot.js" resolve correctly
+      exec(cmd, { cwd: __dirname }, (error, stdout, stderr) => {
         if (error) {
           writeToLog('error', `Screenshot command failed: ${cmd}`, error);
           return reject(error);
@@ -585,6 +595,43 @@ ipcMain.handle("run-screenshot-command", async (event, { command, savePath }) =>
 
 
 
+
+// IPC: Run arbitrary shell command
+ipcMain.handle("run-command", async (event, command) => {
+  if (!command) return { success: false, error: 'No command' };
+  return new Promise((resolve) => {
+    exec(command, { cwd: __dirname, timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) {
+        resolve({ success: false, error: err.message, stdout: stdout || '', stderr: stderr || '' });
+      } else {
+        resolve({ success: true, stdout: stdout || '', stderr: stderr || '' });
+      }
+    });
+  });
+});
+
+// IPC: Browse for utterance file
+ipcMain.handle("browse-utterance-file", async () => {
+  const result = await dialog.showOpenDialog({
+    title: "Select Utterance List File",
+    properties: ["openFile"],
+    filters: [
+      { name: "Text Files", extensions: ["txt"] },
+      { name: "All Files", extensions: ["*"] },
+    ],
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  return result.filePaths[0];
+});
+
+// IPC: Read text file
+ipcMain.handle("read-text-file", async (event, filePath) => {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch (e) {
+    throw new Error(`Failed to read file: ${e.message}`);
+  }
+});
 
 // IPC: Save export files with custom filename (Save As dialog)
 ipcMain.handle("save-export", async (event, { htmlData, jsonChunks, baseName }) => {
@@ -707,6 +754,25 @@ ipcMain.handle("get-screenshots", async (event, args) => {
   const logFilePath = typeof args === 'string' ? args : args.logFilePath;
   const utterance = typeof args === 'string' ? null : args.utterance;
   const utteranceIndex = typeof args === 'string' ? null : args.utteranceIndex;
+  const screenshotDir = typeof args === 'object' ? args.screenshotDir : null;
+  const conversationId = typeof args === 'object' ? args.conversationId : null;
+  const requestId = typeof args === 'object' ? args.requestId : null;
+
+  // Direct screenshotDir mode: search by conversationId + requestId prefix
+  if (screenshotDir && (conversationId || requestId)) {
+    writeToLog('info', `get-screenshots: Direct dir mode. Dir: ${screenshotDir}, convId: ${conversationId}, reqId: ${requestId}`);
+    if (!fs.existsSync(screenshotDir)) return [];
+    try {
+      const files = fs.readdirSync(screenshotDir);
+      const prefix = [conversationId, requestId].filter(Boolean).join('_');
+      const matched = files.filter(f => f.toLowerCase().endsWith('.png') && f.startsWith(prefix))
+        .sort((a, b) => a.localeCompare(b));
+      return matched.map(f => ({ name: f, path: path.join(screenshotDir, f) }));
+    } catch (e) {
+      writeToLog('error', 'get-screenshots: Error reading direct screenshotDir.', e);
+      return [];
+    }
+  }
 
   writeToLog('info', `get-screenshots: Searching for screenshots. Utterance: "${utterance}", Index: ${utteranceIndex}, LogPath: ${logFilePath}`);
 

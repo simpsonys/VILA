@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Screenshot
   selectScreenshotFolder: () => ipcRenderer.invoke("select-screenshot-folder"),
   runScreenshotCommand: (args) => ipcRenderer.invoke("run-screenshot-command", args),
+  runScreenshotCommandNamed: (args) => ipcRenderer.invoke("run-screenshot-command", args),
   initScreenshotFolder: () => ipcRenderer.invoke("init-screenshot-folder"),
   copyScreenshotToClipboard: (filePath) => ipcRenderer.invoke("copy-screenshot-to-clipboard", filePath),
   saveScreenshotAs: (filePath) => ipcRenderer.invoke("save-screenshot-as", filePath),
@@ -41,6 +42,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   
   // SDB Connect
   sdbConnect: (ip) => ipcRenderer.invoke("sdb-connect", ip),
+
+  // Live Test
+  runCommand: (command) => ipcRenderer.invoke("run-command", command),
+  browseUtteranceFile: () => ipcRenderer.invoke("browse-utterance-file"),
+  readTextFile: (filePath) => ipcRenderer.invoke("read-text-file", filePath),
 
   // Find in page (Ctrl+F)
   findInPage: (text, options) => ipcRenderer.invoke("find-in-page", text, options),
