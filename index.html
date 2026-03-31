@@ -130,6 +130,13 @@
                 <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap" onclick="event.stopPropagation();sdbConnectDevice()" id="sdbConnectBtn" title="sdb connect &lt;ip&gt; → sdb root on">🔌 Connect</button>
                 <span id="sdbConnectStatus" style="font-size:11px;color:#64748b"></span>
             </div>
+            <div class="device-input-container" style="margin-top:5px" onclick="event.stopPropagation()">
+                <label for="sdbPathInput" style="white-space:nowrap;font-size:11px;color:#64748b">SDB Path:</label>
+                <input type="text" id="sdbPathInput" class="command-input" placeholder="Auto (C:\tizen-studio\tools\sdb.exe)" style="flex:1;min-width:0;font-size:11px">
+                <button class="btn btn-ghost" style="padding:4px 9px;font-size:11px;white-space:nowrap" onclick="event.stopPropagation();browseSdbPathUI()" title="Browse sdb.exe">📂</button>
+                <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;white-space:nowrap" onclick="event.stopPropagation();saveSdbPathUI()">Save</button>
+                <span id="sdbPathStatus" style="font-size:11px;color:#64748b"></span>
+            </div>
             <div class="dropzone-icon">📄</div>
             <div class="dropzone-title">Drop log file here, or click to browse</div>
             <div class="dropzone-sub">Auto encoding detection (UTF-8, EUC-KR, UTF-16) · <kbd>Ctrl+V</kbd> to paste</div>
@@ -293,6 +300,8 @@ sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
                 </div>
                 <div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #1e2433;padding-top:16px;margin-top:16px">
                     <button class="btn btn-ghost" onclick="closeUpdateModal()">Close</button>
+                    <button class="btn btn-ghost" id="updateSkipBtn" style="display:none" onclick="closeUpdateModal()">Skip</button>
+                    <button class="btn btn-primary" id="updateDownloadBtn" style="display:none" onclick="startDownload()">Update Now</button>
                     <button class="btn btn-primary" id="updateActionBtn" style="display:none" onclick="handleUpdateAction()">Install & Restart</button>
                 </div>
             </div>

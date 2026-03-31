@@ -288,6 +288,7 @@ async function init() {
     updateDefaultCommands(); // Set initial commands
     initColumnFilters();
     setupEventListeners();
+    initSdbPathUI();
 }
 
 // ...
@@ -350,6 +351,36 @@ async function sdbConnectDevice() {
     } finally {
         if (btn) { btn.disabled = false; btn.textContent = '🔌 Connect'; }
         setTimeout(() => { if (status) status.textContent = ''; }, 5000);
+    }
+}
+
+// SDB Path UI
+async function initSdbPathUI() {
+    if (!window.electronAPI || !window.electronAPI.getSdbPath) return;
+    const saved = await window.electronAPI.getSdbPath();
+    const input = document.getElementById('sdbPathInput');
+    if (input && saved) input.value = saved;
+}
+
+async function browseSdbPathUI() {
+    if (!window.electronAPI || !window.electronAPI.browseSdbPath) return;
+    const chosen = await window.electronAPI.browseSdbPath();
+    if (chosen) {
+        const input = document.getElementById('sdbPathInput');
+        if (input) input.value = chosen;
+    }
+}
+
+async function saveSdbPathUI() {
+    if (!window.electronAPI || !window.electronAPI.setSdbPath) return;
+    const input = document.getElementById('sdbPathInput');
+    const status = document.getElementById('sdbPathStatus');
+    const val = (input ? input.value : '').trim();
+    await window.electronAPI.setSdbPath(val);
+    if (status) {
+        status.textContent = '✓ Saved';
+        status.style.color = '#34d399';
+        setTimeout(() => { status.textContent = ''; }, 3000);
     }
 }
 
@@ -1018,10 +1049,7 @@ function setupEventListeners() {
     if (window.electronAPI) {
         if (window.electronAPI.onUpdateAvailable) {
             window.electronAPI.onUpdateAvailable((info) => {
-                showUpdateModal('New version available! Version: ' + info.version, 'downloading');
-                if (window.electronAPI.downloadUpdate) {
-                    window.electronAPI.downloadUpdate();
-                }
+                showUpdateModal('New version available! Version: ' + info.version, 'available');
             });
         }
 
@@ -3740,10 +3768,19 @@ function showUpdateModal(message, state) {
     const modal = document.getElementById('updateModal');
     const content = document.getElementById('updateContent');
     const actionBtn = document.getElementById('updateActionBtn');
+    const downloadBtn = document.getElementById('updateDownloadBtn');
+    const skipBtn = document.getElementById('updateSkipBtn');
     if (actionBtn) actionBtn.style.display = 'none';
+    if (downloadBtn) downloadBtn.style.display = 'none';
+    if (skipBtn) skipBtn.style.display = 'none';
 
     let html = '';
     if (state === 'checking') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:14px;color:#94a3b8">Checking for updates...</div><div style="margin-top:16px;animation:pulse 1s infinite">⏳</div></div>`;
+    else if (state === 'available') {
+        html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">🆕</div><div style="font-size:14px;color:#94a3b8">${message}</div><div style="font-size:12px;color:#64748b;margin-top:8px">Update now or skip to continue using the current version.</div></div>`;
+        if (downloadBtn) downloadBtn.style.display = 'block';
+        if (skipBtn) skipBtn.style.display = 'block';
+    }
     else if (state === 'uptodate') html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">✓</div><div style="font-size:14px;color:#94a3b8">${message}</div></div>`;
     else if (state === 'downloading') html = `<div style="text-align:center;padding:20px"><div style="font-size:14px;color:#94a3b8;margin-bottom:12px">${message}</div><div style="animation:pulse 1s infinite">⬇️</div></div>`;
     else if (state === 'ready') { html = `<div style="text-align:center;padding:40px 20px"><div style="font-size:18px;margin-bottom:8px">🎉</div><div style="font-size:14px;color:#94a3b8">${message}</div></div>`; if (actionBtn) actionBtn.style.display = 'block'; }
@@ -3754,6 +3791,13 @@ function showUpdateModal(message, state) {
 }
 
 function closeUpdateModal() { const modal = document.getElementById('updateModal'); if (modal) modal.classList.remove('open'); }
+
+async function startDownload() {
+    showUpdateModal('Downloading update...', 'downloading');
+    if (window.electronAPI && window.electronAPI.downloadUpdate) {
+        window.electronAPI.downloadUpdate();
+    }
+}
 
 async function handleUpdateAction() { if (updateState === 'ready' && window.electronAPI && window.electronAPI.installUpdate) { window.electronAPI.installUpdate(); } }
 

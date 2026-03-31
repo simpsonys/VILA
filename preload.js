@@ -43,6 +43,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // SDB Connect
   sdbConnect: (ip) => ipcRenderer.invoke("sdb-connect", ip),
 
+  // SDB Path settings
+  getSdbPath: () => ipcRenderer.invoke("get-sdb-path"),
+  setSdbPath: (p) => ipcRenderer.invoke("set-sdb-path", p),
+  browseSdbPath: () => ipcRenderer.invoke("browse-sdb-path"),
+
   // Live Test
   runCommand: (command) => ipcRenderer.invoke("run-command", command),
   browseUtteranceFile: () => ipcRenderer.invoke("browse-utterance-file"),

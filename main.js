@@ -80,6 +80,21 @@ function saveSettings(data) {
   } catch (e) {}
 }
 
+// Resolve sdb executable path: settings → C:\tizen-studio\tools\sdb.exe → 'sdb'
+function resolveSdbPath() {
+  const saved = loadSettings().sdbPath;
+  if (saved && fs.existsSync(saved)) return saved;
+  const fallback = 'C:\\tizen-studio\\tools\\sdb.exe';
+  if (fs.existsSync(fallback)) return fallback;
+  return 'sdb';
+}
+
+// Return quoted sdb path for use in exec() shell commands
+function getSdbExec() {
+  const p = resolveSdbPath();
+  return p.includes(' ') ? `"${p}"` : p;
+}
+
 function getConfigPath() {
   return path.join(app.getPath("userData"), CONFIG_NAME);
 }
@@ -411,14 +426,15 @@ ipcMain.on("cancel-file-read", () => {
 // IPC: SDB Connect — runs "sdb connect <ip>" then "sdb root on"
 ipcMain.handle("sdb-connect", async (event, ip) => {
   if (!ip) return { success: false, error: 'No IP/device specified' };
+  const sdbExec = getSdbExec();
   return new Promise((resolve) => {
-    exec(`sdb connect ${ip}`, (err, stdout, stderr) => {
+    exec(`${sdbExec} connect ${ip}`, (err, stdout, stderr) => {
       const connectOut = (stdout || '') + (stderr || '');
       if (err) {
         resolve({ success: false, error: err.message, connectOutput: connectOut, step: 'connect' });
         return;
       }
-      exec('sdb root on', (err2, stdout2, stderr2) => {
+      exec(`${sdbExec} root on`, (err2, stdout2, stderr2) => {
         const rootOut = (stdout2 || '') + (stderr2 || '');
         resolve({
           success: !err2,
@@ -444,8 +460,10 @@ ipcMain.on("start-log-stream", (event, command) => {
   }
 
   const parts = command.split(' ');
-  const cmd = parts[0];
+  const rawCmd = parts[0];
   const args = parts.slice(1);
+  // Replace 'sdb' with resolved absolute path if available
+  const cmd = rawCmd === 'sdb' ? resolveSdbPath() : rawCmd;
 
   try {
     writeToLog('info', `Attempting to start command: ${cmd} with args: ${args.join(' ')}`);
@@ -551,7 +569,11 @@ ipcMain.handle("reveal-screenshot-in-explorer", async (event, filePath) => {
 
 // IPC: Run screenshot command
 ipcMain.handle("run-screenshot-command", async (event, { command, savePath, customFileName }) => {
-  const commands = command.split(/\r?\n/).filter(c => c.trim() !== '');
+  const sdbExec = getSdbExec();
+  const commands = command.split(/\r?\n/).filter(c => c.trim() !== '').map(c => {
+    if (sdbExec !== 'sdb') return c.replace(/^sdb\b/, sdbExec);
+    return c;
+  });
   let finalPath = null;
   // Ensure save directory exists (e.g., utterance-file-based screenshot subfolder)
   try { fs.mkdirSync(savePath, { recursive: true }); } catch (_) {}
@@ -599,8 +621,10 @@ ipcMain.handle("run-screenshot-command", async (event, { command, savePath, cust
 // IPC: Run arbitrary shell command
 ipcMain.handle("run-command", async (event, command) => {
   if (!command) return { success: false, error: 'No command' };
+  const sdbExec = getSdbExec();
+  const resolvedCommand = sdbExec !== 'sdb' ? command.replace(/^sdb\b/, sdbExec) : command;
   return new Promise((resolve) => {
-    exec(command, { cwd: __dirname, timeout: 30000 }, (err, stdout, stderr) => {
+    exec(resolvedCommand, { cwd: __dirname, timeout: 30000 }, (err, stdout, stderr) => {
       if (err) {
         resolve({ success: false, error: err.message, stdout: stdout || '', stderr: stderr || '' });
       } else {
@@ -914,6 +938,29 @@ ipcMain.handle("open-detail-window", async (event, data) => {
   });
 
   return { windowId: detailWindow.id };
+});
+
+// IPC: Get/Set sdb executable path
+ipcMain.handle("get-sdb-path", () => {
+  return loadSettings().sdbPath || '';
+});
+
+ipcMain.handle("set-sdb-path", (event, sdbPath) => {
+  saveSettings({ sdbPath: sdbPath || '' });
+  return true;
+});
+
+ipcMain.handle("browse-sdb-path", async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Select sdb executable',
+    filters: [
+      { name: 'Executable', extensions: ['exe'] },
+      { name: 'All Files', extensions: ['*'] }
+    ],
+    properties: ['openFile']
+  });
+  if (result.canceled || !result.filePaths.length) return null;
+  return result.filePaths[0];
 });
 
 // IPC: Check for updates
