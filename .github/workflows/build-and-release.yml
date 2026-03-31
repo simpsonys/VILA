@@ -39,7 +39,7 @@ jobs:
 
       # 👇 여기가 핵심 변경 사항입니다 (옛날 액션 제거 -> 최신 액션 적용)
       - name: Create Release and Upload Assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v2.0.4
         with:
           token: ${{ secrets.RELEASE_PAT }}      # 토큰 필수
           repository: ${{ env.RELEASE_REPO }}    # 타겟 저장소 (VILA_Release)

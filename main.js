@@ -459,15 +459,17 @@ ipcMain.on("start-log-stream", (event, command) => {
     return;
   }
 
-  const parts = command.split(' ');
-  const rawCmd = parts[0];
-  const args = parts.slice(1);
-  // Replace 'sdb' with resolved absolute path if available
-  const cmd = rawCmd === 'sdb' ? resolveSdbPath() : rawCmd;
+  const sdbPath = resolveSdbPath();
+  // 경로에 공백이 있을 경우를 대비해 따옴표로 감싸줍니다.
+  const quotedSdbPath = sdbPath.includes(' ') ? `"${sdbPath}"` : sdbPath;
+
+  // UI의 명령어 문자열에서 'sdb'를 실제 실행 경로로 치환합니다.
+  const finalCommand = command.startsWith('sdb ') ? command.replace(/^sdb/, quotedSdbPath) : command;
 
   try {
-    writeToLog('info', `Attempting to start command: ${cmd} with args: ${args.join(' ')}`);
-    dlogProcess = spawn(cmd, args, { cwd: __dirname });
+    writeToLog('info', `Attempting to start command via shell: ${finalCommand}`);
+    // shell: true 옵션을 사용하여 공백이 포함된 경로와 사용자 입력을 더 안정적으로 처리합니다.
+    dlogProcess = spawn(finalCommand, [], { shell: true, cwd: __dirname });
 
     dlogProcess.stdout.on('data', (data) => {
       event.sender.send('log-stream-data', data.toString());
