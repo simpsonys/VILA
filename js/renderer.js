@@ -300,9 +300,9 @@ function updateDefaultCommands() {
     const liveLogCommandInput = document.getElementById('liveLogCommand');
     if (CONFIG && CONFIG.default_live_log_command) {
         if (deviceId) {
-            liveLogCommandInput.value = CONFIG.default_live_log_command.replace('{deviceId}', deviceId);
+            liveLogCommandInput.value = CONFIG.default_live_log_command.replace(/\{deviceId\}|\$ip/g, deviceId);
         } else {
-            liveLogCommandInput.value = CONFIG.default_live_log_command.replace(/\s*-s\s+{deviceId}/g, '').replace('{deviceId}', '');
+            liveLogCommandInput.value = CONFIG.default_live_log_command.replace(/\s*-s\s+(\{deviceId\}|\$ip)/g, '').replace(/\{deviceId\}|\$ip/g, '');
         }
     } else {
         liveLogCommandInput.value = deviceId ? `sdb -s ${deviceId} shell dlogutil -v VOICE_CLIENT` : `sdb shell dlogutil -v VOICE_CLIENT`;
@@ -311,7 +311,7 @@ function updateDefaultCommands() {
     // Update Screenshot Command
     const screenshotCommandTextarea = document.getElementById('screenshotCommand');
     if (CONFIG && CONFIG.default_screenshot_command) {
-        screenshotCommandTextarea.value = CONFIG.default_screenshot_command.replace(/\$ip|\{deviceId\}/g, deviceId);
+        screenshotCommandTextarea.value = CONFIG.default_screenshot_command.replace(/\{deviceId\}|\$ip/g, deviceId);
     } else if (deviceId) {
         screenshotCommandTextarea.value = `sdb -s ${deviceId} shell rm -rf /tmp/dump_screen.png\nsdb -s ${deviceId} shell enlightenment_info -dump_screen\nsdb -s ${deviceId} pull /tmp/dump_screen.png yymmdd_hhmmss.png`;
     } else {
@@ -3884,9 +3884,10 @@ async function browseUtteranceFile() {
 function getLiveTestCommand(utterance) {
     if (!CONFIG || !CONFIG.default_live_test_command) return null;
     const ip = (document.getElementById('sdbDeviceInput').value || '').trim();
+    const safeUtt = utterance ? `"${utterance.replace(/"/g, '\\"')}"` : '""';
     return CONFIG.default_live_test_command
-        .replace(/\$ip/g, ip)
-        .replace(/\$utterance/g, utterance);
+        .replace(/\{deviceId\}|\$ip/g, ip)
+        .replace(/"?\$utterance"?/g, safeUtt);
 }
 
 function parseLiveTestRange(rangeStr, totalLines) {
@@ -3947,7 +3948,8 @@ async function runConditionCommands(condKey, utterance) {
         // Check skip_prefix
         if (cond.skip_prefix && utterance && utterance.startsWith(cond.skip_prefix)) continue;
 
-        const cmd = cond.command.replace(/\$ip/g, ip).replace(/\$utterance/g, utterance || '');
+        const safeUtt = utterance ? `"${utterance.replace(/"/g, '\\"')}"` : '""';
+        const cmd = cond.command.replace(/\{deviceId\}|\$ip/g, ip).replace(/"?\$utterance"?/g, safeUtt);
         if (window.electronAPI && window.electronAPI.runCommand) {
             try {
                 await window.electronAPI.runCommand(cmd);
