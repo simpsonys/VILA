@@ -430,31 +430,24 @@ ipcMain.on("cancel-file-read", () => {
 ipcMain.handle("sdb-connect", async (event, ip) => {
   if (!ip) return { success: false, error: 'No IP/device specified' };
   const sdbExec = getSdbExec();
-  const cmdExe = process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe';
-  
-  const runCmd = (command) => new Promise((resolve) => {
-    const p = spawn(cmdExe, ['/s', '/c', `"${command}"`], { 
-      cwd: __dirname, windowsVerbatimArguments: true, env: process.env 
+  return new Promise((resolve) => {
+    exec(`${sdbExec} connect ${ip}`, (err, stdout, stderr) => {
+      const connectOut = (stdout || '') + (stderr || '');
+      if (err) {
+        resolve({ success: false, error: err.message, connectOutput: connectOut, step: 'connect' });
+        return;
+      }
+      exec(`${sdbExec} root on`, (err2, stdout2, stderr2) => {
+        const rootOut = (stdout2 || '') + (stderr2 || '');
+        resolve({
+          success: !err2,
+          connectOutput: connectOut.trim(),
+          rootOutput: rootOut.trim(),
+          error: err2 ? err2.message : null,
+        });
+      });
     });
-    let out = '', err = '';
-    p.stdout.on('data', d => out += d.toString());
-    p.stderr.on('data', d => err += d.toString());
-    p.on('close', code => resolve({ code, out, err }));
-    p.on('error', e => resolve({ code: -1, out: '', err: e.message }));
   });
-
-  const res1 = await runCmd(`${sdbExec} connect ${ip}`);
-  const connectOut = (res1.out + res1.err).trim();
-  if (res1.code !== 0) return { success: false, error: res1.err || `Code ${res1.code}`, connectOutput: connectOut, step: 'connect' };
-
-  const res2 = await runCmd(`${sdbExec} root on`);
-  const rootOut = (res2.out + res2.err).trim();
-  return {
-    success: res2.code === 0,
-    connectOutput: connectOut,
-    rootOutput: rootOut,
-    error: res2.code !== 0 ? (res2.err || `root on exited with ${res2.code}`) : null,
-  };
 });
 
 // IPC: Start sdb dlogutil stream
@@ -473,15 +466,11 @@ ipcMain.on("start-log-stream", (event, command) => {
   const execCommand = command.startsWith('sdb ') ? command.replace(/^sdb\b/, sdbExec) : command;
 
   try {
-    writeToLog('info', `Attempting to start via spawn(cmd.exe): ${execCommand}`);
-    const cmdExe = process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe';
+    writeToLog('info', `Attempting to start via exec: ${execCommand}`);
     
-    // Use spawn directly with cmd.exe to avoid child_process shell resolution bugs
-    dlogProcess = spawn(cmdExe, ['/s', '/c', `"${execCommand}"`], { 
-      cwd: __dirname, 
-      windowsVerbatimArguments: true,
-      env: process.env
-    });
+    // Electron 패키징된 앱(.asar) 내에서 cwd: __dirname을 사용하면 
+    // OS가 해당 디렉토리를 찾지 못해 ENOENT 에러가 발생하므로 생략합니다.
+    dlogProcess = exec(execCommand);
 
     dlogProcess.stdout.on('data', (data) => {
       event.sender.send('log-stream-data', data.toString());
@@ -505,7 +494,7 @@ ipcMain.on("start-log-stream", (event, command) => {
     });
 
   } catch (err) {
-    writeToLog('error', 'Exception while trying to spawn sdb.', err);
+    writeToLog('error', 'Exception while trying to exec sdb.', err);
     event.sender.send('log-stream-error', `Error starting sdb process: ${err.message}`);
     dlogProcess = null;
   }
@@ -615,25 +604,14 @@ ipcMain.handle("run-screenshot-command", async (event, { command, savePath, cust
     }
 
     await new Promise((resolve, reject) => {
-      // Use __dirname so relative scripts like "node mock-screenshot.js" resolve correctly
-      const cmdExe = process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe';
-      const p = spawn(cmdExe, ['/s', '/c', `"${cmd}"`], { 
-        cwd: __dirname, windowsVerbatimArguments: true, env: process.env 
-      });
-      let out = '', err = '';
-      p.stdout.on('data', d => out += d.toString());
-      p.stderr.on('data', d => err += d.toString());
-      p.on('close', code => {
-        if (code !== 0) {
-          writeToLog('error', `Screenshot command failed: ${cmd}`, err);
-          return reject(new Error(`Exit code ${code}`));
+      // OS ENOENT 버그(app.asar 내부 경로)를 피하기 위해 cwd 옵션을 생략합니다.
+      exec(cmd, (error, stdout, stderr) => {
+        if (error) {
+          writeToLog('error', `Screenshot command failed: ${cmd}`, error);
+          return reject(error);
         }
-        writeToLog('info', `Screenshot command success: ${cmd}`, out, err);
-        resolve(out);
-      });
-      p.on('error', e => {
-        writeToLog('error', `Screenshot command error: ${cmd}`, e);
-        reject(e);
+        writeToLog('info', `Screenshot command success: ${cmd}`, stdout, stderr);
+        resolve(stdout);
       });
     });
   }
@@ -648,22 +626,13 @@ ipcMain.handle("run-command", async (event, command) => {
   if (!command) return { success: false, error: 'No command' };
   const sdbExec = getSdbExec();
   const resolvedCommand = sdbExec !== 'sdb' ? command.replace(/^sdb\b/, sdbExec) : command;
-  const cmdExe = process.env.ComSpec || 'C:\\Windows\\System32\\cmd.exe';
-  
   return new Promise((resolve) => {
-    const p = spawn(cmdExe, ['/s', '/c', `"${resolvedCommand}"`], { 
-      cwd: __dirname, windowsVerbatimArguments: true, env: process.env 
-    });
-    let out = '', err = '';
-    p.stdout.on('data', d => out += d.toString());
-    p.stderr.on('data', d => err += d.toString());
-    
-    // Implement timeout manually if needed, but omitted for simplicity
-    p.on('close', code => {
-      resolve({ success: code === 0, error: code !== 0 ? `Code ${code}` : null, stdout: out, stderr: err });
-    });
-    p.on('error', e => {
-      resolve({ success: false, error: e.message, stdout: out, stderr: err });
+    exec(resolvedCommand, { timeout: 30000 }, (err, stdout, stderr) => {
+      if (err) {
+        resolve({ success: false, error: err.message, stdout: stdout || '', stderr: stderr || '' });
+      } else {
+        resolve({ success: true, stdout: stdout || '', stderr: stderr || '' });
+      }
     });
   });
 });
