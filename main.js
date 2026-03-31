@@ -92,7 +92,9 @@ function resolveSdbPath() {
 // Return quoted sdb path for use in exec() shell commands
 function getSdbExec() {
   const p = resolveSdbPath();
-  return p.includes(' ') ? `"${p}"` : p;
+  // Windows에서 경로에 공백이 없더라도 백슬래시 경로를 안전하게 처리하기 위해 항상 인용부호로 감쌉니다.
+  if (p === 'sdb') return p;
+  return `"${p}"`;
 }
 
 function getConfigPath() {
@@ -460,16 +462,24 @@ ipcMain.on("start-log-stream", (event, command) => {
   }
 
   const sdbPath = resolveSdbPath();
-  // 경로에 공백이 있을 경우를 대비해 따옴표로 감싸줍니다.
-  const quotedSdbPath = sdbPath.includes(' ') ? `"${sdbPath}"` : sdbPath;
 
   // UI의 명령어 문자열에서 'sdb'를 실제 실행 경로로 치환합니다.
-  const finalCommand = command.startsWith('sdb ') ? command.replace(/^sdb/, quotedSdbPath) : command;
+  const resolvedCommand = command.startsWith('sdb ') ? command.replace(/^sdb/, sdbPath) : command;
+
+  // 명령어를 실행파일과 인자로 분리합니다 (따옴표로 묶인 토큰 처리 포함).
+  // Windows에서 shell:true + 전체 명령문자열 방식은 ENOENT를 유발할 수 있으므로
+  // 직접 spawn(exe, args) 방식을 사용합니다.
+  const cmdTokens = resolvedCommand.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+  const [spawnExe, ...spawnArgs] = cmdTokens.map(t => t.replace(/^"|"$/g, ''));
+
+  if (!spawnExe) {
+    writeToLog('error', 'start-log-stream: could not parse executable from command.');
+    return;
+  }
 
   try {
-    writeToLog('info', `Attempting to start command via shell: ${finalCommand}`);
-    // shell: true 옵션을 사용하여 공백이 포함된 경로와 사용자 입력을 더 안정적으로 처리합니다.
-    dlogProcess = spawn(finalCommand, [], { shell: true, cwd: __dirname });
+    writeToLog('info', `Attempting to start: ${spawnExe} ${spawnArgs.join(' ')}`);
+    dlogProcess = spawn(spawnExe, spawnArgs, { cwd: __dirname });
 
     dlogProcess.stdout.on('data', (data) => {
       event.sender.send('log-stream-data', data.toString());
