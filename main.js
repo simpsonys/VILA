@@ -5,7 +5,7 @@ const fs = require("fs");
 const { pipeline } = require("stream/promises");
 const { Transform } = require("stream");
 const jschardet = require("jschardet");
-const { exec } = require("child_process");
+const { exec, spawn } = require("child_process");
 
 let dlogProcess = null;
 
@@ -62,6 +62,7 @@ autoUpdater.setFeedURL({
   owner: 'simpsonys',
   repo: 'VILA_Release'
 });
+autoUpdater.autoDownload = false;
 
 const CONFIG_NAME = "pattern_config.json";
 const SETTINGS_NAME = "vila_settings.json";
@@ -429,14 +430,15 @@ ipcMain.on("cancel-file-read", () => {
 ipcMain.handle("sdb-connect", async (event, ip) => {
   if (!ip) return { success: false, error: 'No IP/device specified' };
   const sdbExec = getSdbExec();
+  const shellPath = process.env.ComSpec || "cmd.exe";
   return new Promise((resolve) => {
-    exec(`${sdbExec} connect ${ip}`, (err, stdout, stderr) => {
+    exec(`${sdbExec} connect ${ip}`, { shell: shellPath }, (err, stdout, stderr) => {
       const connectOut = (stdout || '') + (stderr || '');
       if (err) {
         resolve({ success: false, error: err.message, connectOutput: connectOut, step: 'connect' });
         return;
       }
-      exec(`${sdbExec} root on`, (err2, stdout2, stderr2) => {
+      exec(`${sdbExec} root on`, { shell: shellPath }, (err2, stdout2, stderr2) => {
         const rootOut = (stdout2 || '') + (stderr2 || '');
         resolve({
           success: !err2,
@@ -468,7 +470,8 @@ ipcMain.on("start-log-stream", (event, command) => {
   try {
     writeToLog('info', `Attempting to start via exec: ${execCommand}`);
     // exec()는 shell을 통해 실행하므로 sdb-connect 등과 동일한 방식으로 동작합니다.
-    dlogProcess = exec(execCommand, { cwd: __dirname });
+    const shellPath = process.env.ComSpec || "cmd.exe";
+    dlogProcess = exec(execCommand, { cwd: __dirname, shell: shellPath });
 
     dlogProcess.stdout.on('data', (data) => {
       event.sender.send('log-stream-data', data.toString());
@@ -603,7 +606,8 @@ ipcMain.handle("run-screenshot-command", async (event, { command, savePath, cust
 
     await new Promise((resolve, reject) => {
       // Use __dirname so relative scripts like "node mock-screenshot.js" resolve correctly
-      exec(cmd, { cwd: __dirname }, (error, stdout, stderr) => {
+      const shellPath = process.env.ComSpec || "cmd.exe";
+      exec(cmd, { cwd: __dirname, shell: shellPath }, (error, stdout, stderr) => {
         if (error) {
           writeToLog('error', `Screenshot command failed: ${cmd}`, error);
           return reject(error);
@@ -623,9 +627,10 @@ ipcMain.handle("run-screenshot-command", async (event, { command, savePath, cust
 ipcMain.handle("run-command", async (event, command) => {
   if (!command) return { success: false, error: 'No command' };
   const sdbExec = getSdbExec();
+  const shellPath = process.env.ComSpec || "cmd.exe";
   const resolvedCommand = sdbExec !== 'sdb' ? command.replace(/^sdb\b/, sdbExec) : command;
   return new Promise((resolve) => {
-    exec(resolvedCommand, { cwd: __dirname, timeout: 30000 }, (err, stdout, stderr) => {
+    exec(resolvedCommand, { cwd: __dirname, timeout: 30000, shell: shellPath }, (err, stdout, stderr) => {
       if (err) {
         resolve({ success: false, error: err.message, stdout: stdout || '', stderr: stderr || '' });
       } else {
@@ -1061,7 +1066,7 @@ app.whenReady().then(() => {
       }
     });
 
-    autoUpdater.checkForUpdatesAndNotify();
+    autoUpdater.checkForUpdates();
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
