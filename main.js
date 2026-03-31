@@ -5,7 +5,7 @@ const fs = require("fs");
 const { pipeline } = require("stream/promises");
 const { Transform } = require("stream");
 const jschardet = require("jschardet");
-const { spawn, exec } = require("child_process");
+const { exec } = require("child_process");
 
 let dlogProcess = null;
 
@@ -461,25 +461,14 @@ ipcMain.on("start-log-stream", (event, command) => {
     return;
   }
 
-  const sdbPath = resolveSdbPath();
-
-  // UI의 명령어 문자열에서 'sdb'를 실제 실행 경로로 치환합니다.
-  const resolvedCommand = command.startsWith('sdb ') ? command.replace(/^sdb/, sdbPath) : command;
-
-  // 명령어를 실행파일과 인자로 분리합니다 (따옴표로 묶인 토큰 처리 포함).
-  // Windows에서 shell:true + 전체 명령문자열 방식은 ENOENT를 유발할 수 있으므로
-  // 직접 spawn(exe, args) 방식을 사용합니다.
-  const cmdTokens = resolvedCommand.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
-  const [spawnExe, ...spawnArgs] = cmdTokens.map(t => t.replace(/^"|"$/g, ''));
-
-  if (!spawnExe) {
-    writeToLog('error', 'start-log-stream: could not parse executable from command.');
-    return;
-  }
+  // getSdbExec()는 절대경로인 경우 항상 따옴표로 감싼 경로를 반환합니다.
+  const sdbExec = getSdbExec();
+  const execCommand = command.startsWith('sdb ') ? command.replace(/^sdb\b/, sdbExec) : command;
 
   try {
-    writeToLog('info', `Attempting to start: ${spawnExe} ${spawnArgs.join(' ')}`);
-    dlogProcess = spawn(spawnExe, spawnArgs, { cwd: __dirname });
+    writeToLog('info', `Attempting to start via exec: ${execCommand}`);
+    // exec()는 shell을 통해 실행하므로 sdb-connect 등과 동일한 방식으로 동작합니다.
+    dlogProcess = exec(execCommand, { cwd: __dirname });
 
     dlogProcess.stdout.on('data', (data) => {
       event.sender.send('log-stream-data', data.toString());
@@ -495,7 +484,7 @@ ipcMain.on("start-log-stream", (event, command) => {
       event.sender.send('log-stream-closed', code);
       dlogProcess = null;
     });
-    
+
     dlogProcess.on('error', (err) => {
       writeToLog('error', 'Failed to start sdb process.', err);
       event.sender.send('log-stream-error', `Failed to start sdb. Make sure 'sdb' is in your system's PATH. Error: ${err.message}`);
@@ -503,8 +492,8 @@ ipcMain.on("start-log-stream", (event, command) => {
     });
 
   } catch (err) {
-    writeToLog('error', 'Exception while trying to spawn sdb.', err);
-    event.sender.send('log-stream-error', `Error spawning sdb process: ${err.message}`);
+    writeToLog('error', 'Exception while trying to exec sdb.', err);
+    event.sender.send('log-stream-error', `Error starting sdb process: ${err.message}`);
     dlogProcess = null;
   }
 });
