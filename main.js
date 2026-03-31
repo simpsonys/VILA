@@ -429,25 +429,34 @@ ipcMain.on("cancel-file-read", () => {
 // IPC: SDB Connect — runs "sdb connect <ip>" then "sdb root on"
 ipcMain.handle("sdb-connect", async (event, ip) => {
   if (!ip) return { success: false, error: 'No IP/device specified' };
-  const sdbExec = getSdbExec();
-  const shellPath = process.env.ComSpec || "cmd.exe";
+  const sdbPath = resolveSdbPath();
   return new Promise((resolve) => {
-    exec(`${sdbExec} connect ${ip}`, { shell: shellPath }, (err, stdout, stderr) => {
-      const connectOut = (stdout || '') + (stderr || '');
-      if (err) {
-        resolve({ success: false, error: err.message, connectOutput: connectOut, step: 'connect' });
+    const p1 = spawn(sdbPath, ['connect', ip], { cwd: __dirname });
+    let out1 = '', err1 = '';
+    p1.stdout.on('data', d => out1 += d.toString());
+    p1.stderr.on('data', d => err1 += d.toString());
+    p1.on('close', (code) => {
+      const connectOut = out1 + err1;
+      if (code !== 0) {
+        resolve({ success: false, error: `Process exited with code ${code}`, connectOutput: connectOut, step: 'connect' });
         return;
       }
-      exec(`${sdbExec} root on`, { shell: shellPath }, (err2, stdout2, stderr2) => {
-        const rootOut = (stdout2 || '') + (stderr2 || '');
+      const p2 = spawn(sdbPath, ['root', 'on'], { cwd: __dirname });
+      let out2 = '', err2 = '';
+      p2.stdout.on('data', d => out2 += d.toString());
+      p2.stderr.on('data', d => err2 += d.toString());
+      p2.on('close', (code2) => {
+        const rootOut = out2 + err2;
         resolve({
-          success: !err2,
+          success: code2 === 0,
           connectOutput: connectOut.trim(),
           rootOutput: rootOut.trim(),
-          error: err2 ? err2.message : null,
+          error: code2 !== 0 ? `root on exited with code ${code2}` : null,
         });
       });
+      p2.on('error', (e) => resolve({ success: false, error: e.message, connectOutput: connectOut, step: 'root' }));
     });
+    p1.on('error', (e) => resolve({ success: false, error: e.message, connectOutput: '', step: 'connect' }));
   });
 });
 
@@ -463,15 +472,28 @@ ipcMain.on("start-log-stream", (event, command) => {
     return;
   }
 
-  // getSdbExec()는 절대경로인 경우 항상 따옴표로 감싼 경로를 반환합니다.
-  const sdbExec = getSdbExec();
-  const execCommand = command.startsWith('sdb ') ? command.replace(/^sdb\b/, sdbExec) : command;
+  const sdbPath = resolveSdbPath();
+  let spawnCmd = sdbPath;
+  let spawnArgs = [];
+
+  if (command.startsWith('sdb ')) {
+      const argsStr = command.substring(4).trim();
+      if (argsStr) {
+          spawnArgs = argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+          spawnArgs = spawnArgs.map(s => s.replace(/^"|"$/g, ''));
+      }
+  } else {
+      // sdb가 아닌 다른 명령어일 경우(거의 없지만) space로 파싱
+      const parts = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+      if (parts.length > 0) {
+          spawnCmd = parts[0].replace(/^"|"$/g, '');
+          spawnArgs = parts.slice(1).map(s => s.replace(/^"|"$/g, ''));
+      }
+  }
 
   try {
-    writeToLog('info', `Attempting to start via exec: ${execCommand}`);
-    // exec()는 shell을 통해 실행하므로 sdb-connect 등과 동일한 방식으로 동작합니다.
-    const shellPath = process.env.ComSpec || "cmd.exe";
-    dlogProcess = exec(execCommand, { cwd: __dirname, shell: shellPath });
+    writeToLog('info', `Attempting to start via spawn: ${spawnCmd} ${spawnArgs.join(' ')}`);
+    dlogProcess = spawn(spawnCmd, spawnArgs, { cwd: __dirname });
 
     dlogProcess.stdout.on('data', (data) => {
       event.sender.send('log-stream-data', data.toString());
@@ -489,14 +511,14 @@ ipcMain.on("start-log-stream", (event, command) => {
     });
 
     dlogProcess.on('error', (err) => {
-      writeToLog('error', 'Failed to start sdb process.', err);
-      event.sender.send('log-stream-error', `Failed to start sdb. Make sure 'sdb' is in your system's PATH. Error: ${err.message}`);
+      writeToLog('error', 'Failed to start process.', err);
+      event.sender.send('log-stream-error', `Failed to start process. Error: ${err.message}`);
       dlogProcess = null;
     });
 
   } catch (err) {
-    writeToLog('error', 'Exception while trying to exec sdb.', err);
-    event.sender.send('log-stream-error', `Error starting sdb process: ${err.message}`);
+    writeToLog('error', 'Exception while trying to spawn.', err);
+    event.sender.send('log-stream-error', `Error starting process: ${err.message}`);
     dlogProcess = null;
   }
 });
@@ -626,16 +648,39 @@ ipcMain.handle("run-screenshot-command", async (event, { command, savePath, cust
 // IPC: Run arbitrary shell command
 ipcMain.handle("run-command", async (event, command) => {
   if (!command) return { success: false, error: 'No command' };
-  const sdbExec = getSdbExec();
-  const shellPath = process.env.ComSpec || "cmd.exe";
-  const resolvedCommand = sdbExec !== 'sdb' ? command.replace(/^sdb\b/, sdbExec) : command;
-  return new Promise((resolve) => {
-    exec(resolvedCommand, { cwd: __dirname, timeout: 30000, shell: shellPath }, (err, stdout, stderr) => {
-      if (err) {
-        resolve({ success: false, error: err.message, stdout: stdout || '', stderr: stderr || '' });
-      } else {
-        resolve({ success: true, stdout: stdout || '', stderr: stderr || '' });
+  
+  const sdbPath = resolveSdbPath();
+  let spawnCmd = sdbPath;
+  let spawnArgs = [];
+
+  if (command.startsWith('sdb ')) {
+      const argsStr = command.substring(4).trim();
+      if (argsStr) {
+          spawnArgs = argsStr.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+          spawnArgs = spawnArgs.map(s => s.replace(/^"|"$/g, ''));
       }
+  } else {
+      const parts = command.match(/(?:[^\s"]+|"[^"]*")+/g) || [];
+      if (parts.length > 0) {
+          spawnCmd = parts[0].replace(/^"|"$/g, '');
+          spawnArgs = parts.slice(1).map(s => s.replace(/^"|"$/g, ''));
+      }
+  }
+
+  return new Promise((resolve) => {
+    const p = spawn(spawnCmd, spawnArgs, { cwd: __dirname });
+    let stdout = '', stderr = '';
+    p.stdout.on('data', d => stdout += d.toString());
+    p.stderr.on('data', d => stderr += d.toString());
+    p.on('close', code => {
+      if (code !== 0) {
+        resolve({ success: false, error: `Exited with code ${code}`, stdout: stdout, stderr: stderr });
+      } else {
+        resolve({ success: true, stdout: stdout, stderr: stderr });
+      }
+    });
+    p.on('error', err => {
+      resolve({ success: false, error: err.message, stdout: stdout, stderr: stderr });
     });
   });
 });
