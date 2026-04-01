@@ -215,17 +215,33 @@ async function init() {
             window.electronAPI.onLogStreamData(handleStreamingChunk);
         }
         if (window.electronAPI.onLogStreamError) {
+            // 치명적 에러 (spawn 실패 등) → stream 중단
             window.electronAPI.onLogStreamError((error) => {
+                logToFile('error', `[LiveLog] Fatal stream error: ${error}`);
                 showErrorToast(`Live stream error: ${error}`);
-                toggleLiveStream(); // Stop the stream on error
+                if (isLiveStreaming) toggleLiveStream();
+            });
+        }
+        if (window.electronAPI.onLogStreamStderr) {
+            // sdb stderr 출력 (비치명적) → 로그만 남기고 stream 유지
+            window.electronAPI.onLogStreamStderr((msg) => {
+                logToFile('warn', `[LiveLog] sdb stderr: ${msg}`);
             });
         }
         if (window.electronAPI.onLogStreamClosed) {
             window.electronAPI.onLogStreamClosed((code) => {
+                logToFile('info', `[LiveLog] Stream closed by user, code: ${code}`);
                 showToast(`Live stream stopped (code: ${code}).`);
                 if (isLiveStreaming) {
-                    toggleLiveStream(); // Ensure UI is updated
+                    toggleLiveStream(); // UI 상태 정리
                 }
+            });
+        }
+        if (window.electronAPI.onLogStreamReconnecting) {
+            // 예기치 않은 종료 → 자동 재연결 중 (UI 유지)
+            window.electronAPI.onLogStreamReconnecting((code) => {
+                logToFile('warn', `[LiveLog] Stream dropped (code: ${code}), auto-reconnecting...`);
+                showToast(`Live log reconnecting... (code: ${code})`);
             });
         }
 
@@ -4005,7 +4021,11 @@ async function sendLiveTest() {
     const statusEl = document.getElementById('liveTestStatus');
     const sendBtn = document.getElementById('liveTestSendBtn');
 
-    if (sendBtn) sendBtn.disabled = true;
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.classList.add('sending');
+        sendBtn.textContent = '⏳ Sending...';
+    }
     if (statusEl) statusEl.textContent = `Sending: "${utterance}"...`;
 
     // Run PreConditionEach for single test
@@ -4041,7 +4061,11 @@ async function sendLiveTest() {
         if (input) input.value = '';
     }
 
-    if (sendBtn) sendBtn.disabled = false;
+    if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.classList.remove('sending');
+        sendBtn.textContent = '▶ Send';
+    }
     setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
 }
 

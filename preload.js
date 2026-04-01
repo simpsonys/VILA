@@ -15,7 +15,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
   stopLogStream: () => ipcRenderer.send("stop-log-stream"),
   onLogStreamData: (callback) => ipcRenderer.on("log-stream-data", (event, data) => callback(data)),
   onLogStreamError: (callback) => ipcRenderer.on("log-stream-error", (event, data) => callback(data)),
+  onLogStreamStderr: (callback) => ipcRenderer.on("log-stream-stderr", (event, data) => callback(data)),
   onLogStreamClosed: (callback) => ipcRenderer.on("log-stream-closed", (event, code) => callback(code)),
+  onLogStreamReconnecting: (callback) => ipcRenderer.on("log-stream-reconnecting", (event, code) => callback(code)),
 
   // Get OS file path for a File object (contextIsolation-safe replacement for file.path)
   getPathForFile: (file) => webUtils.getPathForFile(file),

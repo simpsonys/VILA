@@ -40,6 +40,8 @@ kbd { background: #1e2433; padding: 2px 6px; border-radius: 4px; font-size: 12px
 .btn:hover { opacity: 0.85; }
 .btn-ghost { background: #1e2433; border: 1px solid #2a3040; color: #94a3b8; padding: 8px 16px; }
 .btn-primary { background: linear-gradient(135deg, #1a3a5c, #1e2d5c); border: 1px solid #2a4a7c; color: #60dcfa; padding: 7px 16px; font-weight: 600; }
+.btn-primary.sending { background: linear-gradient(135deg, #1a4a2c, #1e3d1c); border: 1px solid #2a7a4c; color: #60faaa; animation: sending-pulse 0.6s ease-in-out infinite alternate; }
+@keyframes sending-pulse { from { opacity: 0.7; } to { opacity: 1; } }
 .btn-paste { background: #1e2433; border: 1px solid #2a3040; color: #94a3b8; padding: 8px 20px; font-size: 14px; }
 .btn-live { background: #3b0d0d; border: 1px solid #7f1d1d; color: #f87171; padding: 8px 20px; font-size: 14px; }
 .btn-live.active { background: #7f1d1d; border: 1px solid #f87171; color: #fff; }

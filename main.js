@@ -8,6 +8,9 @@ const jschardet = require("jschardet");
 const { exec, spawn } = require("child_process");
 
 let dlogProcess = null;
+let liveLogUserStopped = false;
+let liveLogLastCommand = null;
+let liveLogSender = null;
 
 let activeFileStream = null;
 
@@ -54,6 +57,16 @@ ipcMain.handle('open-log-file', async () => {
     shell.showItemInFolder(logPath);
   }
 });
+
+// Clear log file on each app start to prevent unbounded growth
+function clearLogOnStart() {
+  const logPath = getLogPath();
+  try {
+    fs.writeFileSync(logPath, '');
+  } catch (err) {
+    console.error('Failed to clear log on start:', err);
+  }
+}
 // --- End App Logging ---
 
 // Configure autoUpdater to use VILA_Release repository
@@ -450,60 +463,89 @@ ipcMain.handle("sdb-connect", async (event, ip) => {
   });
 });
 
-// IPC: Start sdb dlogutil stream
-ipcMain.on("start-log-stream", (event, command) => {
-  if (dlogProcess) {
-    writeToLog('warn', 'start-log-stream called but dlogProcess already exists.');
-    return;
-  }
-
-  if (!command) {
-    writeToLog('error', 'start-log-stream called with no command.');
-    return;
-  }
-
+// Helper: spawn sdb live log process with auto-restart on unexpected close
+function startLiveLogProcess(command, sender) {
   const sdbExec = getSdbExec();
   const execCommand = command.startsWith('sdb ') ? command.replace(/^sdb\b/, sdbExec) : command;
 
+  writeToLog('info', `[LiveLog] Starting process: ${execCommand}`);
+
   try {
-    writeToLog('info', `Attempting to start via exec: ${execCommand}`);
-    
-    // Electron 패키징된 앱(.asar) 내에서 cwd: __dirname을 사용하면 
+    // Electron 패키징된 앱(.asar) 내에서 cwd: __dirname을 사용하면
     // OS가 해당 디렉토리를 찾지 못해 ENOENT 에러가 발생하므로 생략합니다.
     dlogProcess = exec(execCommand);
+    writeToLog('info', `[LiveLog] Process spawned, pid: ${dlogProcess.pid}`);
 
     dlogProcess.stdout.on('data', (data) => {
-      event.sender.send('log-stream-data', data.toString());
+      if (!sender.isDestroyed()) sender.send('log-stream-data', data.toString());
     });
 
+    // stderr 는 치명적 에러가 아님 — 별도 채널로 전달 (stream 중단 안 함)
     dlogProcess.stderr.on('data', (data) => {
-      writeToLog('error', `sdb stderr: ${data.toString()}`);
-      event.sender.send('log-stream-error', data.toString());
+      const msg = data.toString().trim();
+      writeToLog('warn', `[LiveLog] stderr: ${msg}`);
+      if (!sender.isDestroyed()) sender.send('log-stream-stderr', msg);
     });
 
     dlogProcess.on('close', (code) => {
-      writeToLog('info', `sdb process exited with code ${code}`);
-      event.sender.send('log-stream-closed', code);
+      const pid = dlogProcess ? dlogProcess.pid : 'N/A';
+      writeToLog('info', `[LiveLog] Process closed, pid: ${pid}, code: ${code}, userStopped: ${liveLogUserStopped}`);
       dlogProcess = null;
+
+      if (liveLogUserStopped || sender.isDestroyed()) {
+        if (!sender.isDestroyed()) sender.send('log-stream-closed', code);
+        return;
+      }
+
+      // 예기치 않은 종료 → 2초 후 자동 재연결
+      writeToLog('warn', `[LiveLog] Unexpected close (code: ${code}). Auto-restarting in 2s...`);
+      if (!sender.isDestroyed()) sender.send('log-stream-reconnecting', code);
+      setTimeout(() => {
+        if (!liveLogUserStopped && !sender.isDestroyed()) {
+          writeToLog('info', '[LiveLog] Auto-restart triggered.');
+          startLiveLogProcess(command, sender);
+        }
+      }, 2000);
     });
 
     dlogProcess.on('error', (err) => {
-      writeToLog('error', 'Failed to start sdb process.', err);
-      event.sender.send('log-stream-error', `Failed to start sdb. Make sure 'sdb' is in your system's PATH. Error: ${err.message}`);
+      writeToLog('error', '[LiveLog] Process error (spawn failed).', err);
       dlogProcess = null;
+      if (liveLogUserStopped || sender.isDestroyed()) return;
+      // spawn 자체 실패는 치명적 에러로 처리
+      if (!sender.isDestroyed()) sender.send('log-stream-error', `Failed to start sdb. Make sure 'sdb' is in your PATH. Error: ${err.message}`);
     });
 
   } catch (err) {
-    writeToLog('error', 'Exception while trying to exec sdb.', err);
-    event.sender.send('log-stream-error', `Error starting sdb process: ${err.message}`);
+    writeToLog('error', '[LiveLog] Exception during exec.', err);
     dlogProcess = null;
+    if (!sender.isDestroyed()) sender.send('log-stream-error', `Error starting sdb process: ${err.message}`);
   }
+}
+
+// IPC: Start sdb dlogutil stream
+ipcMain.on("start-log-stream", (event, command) => {
+  if (dlogProcess) {
+    writeToLog('warn', '[LiveLog] start-log-stream called but dlogProcess already exists. Ignoring.');
+    return;
+  }
+  if (!command) {
+    writeToLog('error', '[LiveLog] start-log-stream called with no command.');
+    return;
+  }
+
+  liveLogUserStopped = false;
+  liveLogLastCommand = command;
+  liveLogSender = event.sender;
+
+  startLiveLogProcess(command, event.sender);
 });
 
 // IPC: Stop sdb dlogutil stream
 ipcMain.on("stop-log-stream", () => {
+  writeToLog('info', '[LiveLog] User requested stop.');
+  liveLogUserStopped = true;
   if (dlogProcess) {
-    writeToLog('info', 'Stopping dlogProcess.');
     dlogProcess.kill();
     dlogProcess = null;
   }
@@ -626,11 +668,15 @@ ipcMain.handle("run-command", async (event, command) => {
   if (!command) return { success: false, error: 'No command' };
   const sdbExec = getSdbExec();
   const resolvedCommand = sdbExec !== 'sdb' ? command.replace(/^sdb\b/, sdbExec) : command;
+  writeToLog('info', `[LiveTest] run-command: ${resolvedCommand}`);
   return new Promise((resolve) => {
     exec(resolvedCommand, { timeout: 30000 }, (err, stdout, stderr) => {
       if (err) {
+        writeToLog('error', `[LiveTest] run-command failed: ${err.message}`, { stdout, stderr });
         resolve({ success: false, error: err.message, stdout: stdout || '', stderr: stderr || '' });
       } else {
+        if (stderr) writeToLog('warn', `[LiveTest] run-command stderr: ${stderr.trim()}`);
+        writeToLog('info', `[LiveTest] run-command ok. stdout: ${(stdout || '').trim().substring(0, 200)}`);
         resolve({ success: true, stdout: stdout || '', stderr: stderr || '' });
       }
     });
@@ -1011,7 +1057,8 @@ let detailWindows = []; // Track open detail windows
 
 // ── Multi-Instance Support (no single-instance lock) ──
 app.whenReady().then(() => {
-    writeToLog('info', `VILA App Started, Version: ${app.getVersion()}`);
+    clearLogOnStart();
+    writeToLog('info', `VILA App Started, Version: ${app.getVersion()}, PID: ${process.pid}`);
     // Restore last preset (must be after app.ready so app.getPath works)
     currentConfigFile = loadSettings().lastPreset || CONFIG_NAME;
     ensureConfig();
