@@ -2031,6 +2031,15 @@ function renderTable() {
         return true;
     });
 
+    // Apply ignoreNA filters: hide rows where the column value is empty or N/A
+    const ignoreNACols = cols.filter(c => c.ignoreNA);
+    if (ignoreNACols.length > 0) {
+        rows = rows.filter(e => ignoreNACols.every(c => {
+            const v = e[c.key];
+            return v && v !== 'N/A';
+        }));
+    }
+
     const sortKey = Object.keys(sortState).find(k => sortState[k]);
     if (sortKey) {
         rows = [...rows].sort((a, b) => {
@@ -2387,6 +2396,20 @@ function clearLiveLog() {
     const el2 = document.getElementById('progMatched');
     if (el1) el1.textContent = '0';
     if (el2) el2.textContent = '0';
+}
+
+function openLiveLogInEditor() {
+    const editorPath = CONFIG.default_live_log_editor;
+    if (!editorPath) {
+        showErrorToast('No editor configured. Set "default_live_log_editor" in pattern config.');
+        return;
+    }
+    if (!window.electronAPI) {
+        showErrorToast('Editor open is only available in the Electron app.');
+        return;
+    }
+    const content = rawLogLines.join('\n');
+    window.electronAPI.openLiveLogInEditor(content, editorPath);
 }
 
 async function selectScreenshotFolder() {

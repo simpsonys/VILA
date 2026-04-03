@@ -58,6 +58,18 @@ ipcMain.handle('open-log-file', async () => {
   }
 });
 
+ipcMain.handle('open-live-log-in-editor', async (event, content, editorPath) => {
+  const tmpPath = path.join(app.getPath('temp'), `vila_live_log_${Date.now()}.log`);
+  try {
+    fs.writeFileSync(tmpPath, content, 'utf-8');
+    exec(`"${editorPath}" "${tmpPath}"`);
+    return { path: tmpPath };
+  } catch (e) {
+    writeToLog('error', 'Failed to open live log in editor', e);
+    return { error: e.message };
+  }
+});
+
 // Clear log file on each app start to prevent unbounded growth
 function clearLogOnStart() {
   const logPath = getLogPath();

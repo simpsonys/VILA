@@ -67,6 +67,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   deletePreset: (fileName) => ipcRenderer.invoke("delete-preset", fileName),
   resetPreset: (fileName) => ipcRenderer.invoke("reset-preset", fileName),
   
+  openLiveLogInEditor: (content, editorPath) => ipcRenderer.invoke("open-live-log-in-editor", content, editorPath),
+
   // Logging
   logMessage: (log) => ipcRenderer.send("log-message", log),
   openLogFile: () => ipcRenderer.invoke("open-log-file"),
