@@ -1,6 +1,6 @@
 {
   "name": "voice-log-analyzer",
-  "version": "1.8.16",
+  "version": "1.8.17",
   "description": "Voice Interaction Log Analyzer - Utterance-level log analysis report tool",
   "main": "main.js",
   "scripts": {
