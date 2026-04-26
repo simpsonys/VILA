@@ -1,0 +1,28 @@
+# Node modules
+node_modules/
+
+# Build output
+dist/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# sensitive data tools
+replacements.txt
+
+# generated report output
+report/
+screenshot/
+
+# build artifacts / backups
+*.zip
+*.backup
+release_repo/

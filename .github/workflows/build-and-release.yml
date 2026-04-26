@@ -1,0 +1,59 @@
+name: Build and Publish Release to VILA_Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  RELEASE_REPO: simpsonys/VILA_Release
+
+jobs:
+  build_and_release:
+    name: Build (Windows) and Publish to Release Repo
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate build-time
+        run: npm run prebuild
+
+      # [중요] 빌드만 수행하고 자동 배포는 차단 (-- --publish never)
+      - name: Build Windows installer
+        run: npm run build -- --publish never
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
+
+      # 👇 여기가 핵심 변경 사항입니다 (옛날 액션 제거 -> 최신 액션 적용)
+      - name: Create Release and Upload Assets
+        uses: softprops/action-gh-release@v2.0.4
+        with:
+          token: ${{ secrets.RELEASE_PAT }}      # 토큰 필수
+          repository: ${{ env.RELEASE_REPO }}    # 타겟 저장소 (VILA_Release)
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body: "Automated release for version ${{ github.ref_name }}"
+          draft: false
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
+          files: |
+            dist/*.exe
+            dist/*.blockmap
+            dist/latest.yml
+
+      - name: Notify
+        run: echo "Published release ${{ github.ref_name }} to ${{ env.RELEASE_REPO }}"

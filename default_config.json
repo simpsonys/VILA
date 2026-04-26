@@ -1,0 +1,73 @@
+{
+  "start_patterns": [
+    "cmd_from_mockapp",
+    "GRPC OPEN IN",
+    "REQUEST OPEN SERVER"
+  ],
+  "end_patterns": [
+    "GRPC CLOSE OUT",
+    "Process Finished!"
+  ],
+  "success_patterns": [
+    "result_code=success"
+  ],
+  "failure_patterns": [
+    "result_code=fail"
+  ],
+  "clickable_patterns": {
+    "conversationId": {
+      "pattern": "conversationId\\[([^\\]]+)\\]",
+      "url_template": "https://example.com/conversation/?conversationId={value}",
+      "display_name": "ConversationID"
+    },
+    "requestId": {
+      "pattern": "requestId\\[([^\\]]+)\\]",
+      "url_template": null,
+      "display_name": "RequestID"
+    },
+    "capsuleGoal": {
+      "pattern": "setExecutionCapsuleGoal\\(\\d+\\)\\s*>\\s*(.*)",
+      "url_template": null,
+      "display_name": "Capsule Goal"
+    }
+  },
+  "utterance_patterns": {
+    "kAsr2Response": {
+      "pattern": "kAsr2Response\\s*\\[FINAL\\]\\s*\\[([^\\]]+)\\]",
+      "utterance": "{value}"
+    },
+    "SetCmdAllResult": {
+      "pattern": "SetCmdAllResult\\(\\d+\\)\\s*>\\s*(.*)",
+      "utterance": "{value}"
+    },
+    "cmd_from_mockapp": {
+      "pattern": "cmd_from_mockapp\\s*[,\\s]\\s*(.*)",
+      "utterance": "{value}"
+    }
+  },
+  "pattern_groups": {
+    "MakeMetaDataParams": {
+      "name": "MakeMetaDataParams",
+      "patterns": [
+        "MakeMetaDataParams.*",
+        "GetConfig.*"
+      ]
+    },
+    "Actions": {
+      "name": "Action",
+      "patterns": [
+        "PROCESS ACTION URL.*",
+        "result_code"
+      ]
+    }
+  },
+  "default_live_log_command": "sdb -s {deviceId} shell dlogutil -v VOICE_CLIENT",
+  "table_columns": [
+    { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId" },
+    { "key": "requestId", "label": "Request ID", "width": "12%" },
+    { "key": "capsuleGoal", "label": "Capsule Goal", "width": "12%" },
+    { "key": "utterance", "label": "Utterance", "width": "28%", "type": "utterance" },
+    { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
+    { "key": "successLine", "label": "Success Match", "width": "20%", "type": "log" }
+  ]
+}

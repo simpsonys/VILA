@@ -1,0 +1,76 @@
+{
+  "start_patterns": [
+    "cmd_from_mockapp"
+  ],
+  "end_patterns": [
+    "GRPC CLOSE OUT"
+  ],
+  "success_patterns": [
+    "DialogText"
+  ],
+  "failure_patterns": [
+    "result_code=fail"
+  ],
+  "clickable_patterns": {
+    "conversationId": {
+      "pattern": "conversationId\\[([^\\]]+)\\]",
+      "url_template1": "https://example.com/conversation/?conversationId={value}",
+      "url_template2": "http://localhost:5000/explorer/?conversationId={value}",
+      "display_name": "ConversationID"
+    },
+    "requestId": {
+      "pattern": "requestId\\[([^\\]]+)\\]",
+      "url_template": null,
+      "display_name": "RequestID"
+    },
+    "capsuleGoal": {
+      "pattern": "setExecutionCapsuleGoal\\(\\d+\\)\\s*>\\s*(.*)",
+      "url_template": null,
+      "display_name": "Capsule Goal"
+    }
+  },
+  "utterance_patterns": {
+    "cmd_from_mockapp": {
+      "pattern": "cmd_from_mockapp\\s*[,\\s]\\s*(.*)",
+      "utterance": "{value}"
+    }
+  },
+  "pattern_groups": {
+    "MakeMetaDataParams": {
+      "name": "MakeMetaDataParams",
+      "patterns": [
+        "MakeMetaDataParams.*",
+		"GetConfig.*"
+      ]
+    },
+    "Actions": {
+      "name": "Action",
+      "patterns": [
+		"PROCESS ACTION URL.*",
+        "result_code"
+      ]
+    },
+    "setDialogText": {
+      "name": "setDialogText",
+      "patterns": [
+		"setDialogText.*"
+      ]
+    },
+    "YT": {
+      "name": "YT",
+      "patterns": [
+		"Dispatching deep link event.*"
+      ]
+    }
+  },
+  "default_sdb_device": "192.168.250.250:26101",
+  "default_live_log_command": "node mock-sdb.js",
+  "table_columns": [
+    { "key": "conversationId", "label": "Conversation ID", "width": "20%", "clickable_key": "conversationId" },
+    { "key": "requestId", "label": "Request ID", "width": "12%" },
+    { "key": "capsuleGoal", "label": "Capsule Goal", "width": "12%" },
+    { "key": "utterance", "label": "Utterance", "width": "28%", "type": "utterance" },
+    { "key": "result", "label": "Result", "width": "8%", "type": "badge" },
+    { "key": "successLine", "label": "Success Match", "width": "20%", "type": "log" }
+  ]
+}

@@ -1,0 +1,77 @@
+name: Prevent Committing Large Files (changed files only)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check_large_files:
+    name: Scan changed files for files > 50MB
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository (full)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Compute changed files
+        id: changed_files
+        run: |
+          echo "Computing changed files..."
+          # Prepare output file
+          touch changed.txt
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE=${{ github.event.pull_request.base.sha }}
+            HEAD=${{ github.event.pull_request.head.sha }}
+            echo "Pull request: comparing $BASE..$HEAD"
+            git fetch --no-tags --prune --depth=0 origin $BASE $HEAD || true
+            git diff --name-only $BASE $HEAD > changed.txt || true
+          else
+            BEFORE=${{ github.event.before }}
+            AFTER=${{ github.event.after }}
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              # new branch or initial push — treat all files as changed
+              git ls-files > changed.txt
+            else
+              echo "Push: comparing $BEFORE..$AFTER"
+              git fetch --no-tags --prune --depth=0 origin $BEFORE $AFTER || true
+              git diff --name-only $BEFORE $AFTER > changed.txt || true
+            fi
+          fi
+          echo "Changed files:" && cat changed.txt || true
+          echo "changed_files<<EOF" >> $GITHUB_OUTPUT
+          cat changed.txt || true
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Scan changed files for >50MB
+        run: |
+          echo "Scanning changed files for files larger than 50MB..."
+          if [ -s changed.txt ]; then
+            FAIL=0
+            while IFS= read -r f; do
+              # skip directory entries or workflow files
+              if [ -z "$f" ]; then
+                continue
+              fi
+              case "$f" in
+                .github/*) continue ;;
+                .git/*) continue ;;
+              esac
+              if [ -f "$f" ]; then
+                SIZE=$(stat -c%s "$f" 2>/dev/null || printf 0)
+                if [ "$SIZE" -gt $((50*1024*1024)) ]; then
+                  echo "ERROR: $f is larger than 50MB ($SIZE bytes)" >&2
+                  FAIL=1
+                fi
+              fi
+            done < changed.txt
+            if [ "$FAIL" -eq 1 ]; then
+              echo "One or more changed files exceed 50MB. Please remove them from the commit or use Git LFS." >&2
+              exit 1
+            fi
+          else
+            echo "No changed files to check."
+          fi
+          echo "All changed files are under 50MB."

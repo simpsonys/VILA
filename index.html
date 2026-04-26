@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Interaction Log Analyzer</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header" id="mainHeader">
+        <div style="display:flex;align-items:center;gap:12px;min-width:280px;cursor:pointer" onclick="resetApp()">
+            <div class="logo">V</div>
+            <div>
+                <div class="app-title">Voice Interaction Log Analyzer</div>
+                <div class="app-sub" id="appSub">Loading...</div>
+            </div>
+        </div>
+
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:5px">
+        </div>
+
+        <div style="display:flex;gap:8px;align-items:center;min-width:280px;justify-content:flex-end">
+            <div class="preset-bar" id="presetBar" style="display:flex;align-items:center;gap:8px;padding:5px 0;width:fit-content">
+                <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" id="patternListBtn" onclick="showPatternListModal()" title="View/Toggle Pattern List">
+                    📋 Patterns
+                </button>
+                <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" id="presetToggleBtn" onclick="togglePresetMenu()" title="Preset Options">
+                    🎛️ Preset: <span id="currentPresetLabel" style="font-weight:700;color:#60dcfa">Default</span> ⏷
+                </button>
+            </div>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" id="devToggleBtn" onclick="toggleDevMenu()" title="Toggle DEV options">🛠 DEV</button>
+            <div id="streamingLabel" class="mode-switch-wrap">
+                <button class="mode-btn active" id="modeBtnBatch" onclick="setStreamingMode(false)" title="파일 끝까지 분석 후 결과 표시">
+                    <span class="mode-icon">📋</span> Batch
+                </button>
+                <button class="mode-btn" id="modeBtnStream" onclick="setStreamingMode(true)" title="분석 중 실시간으로 결과 표시 (Streaming)">
+                    <span class="mode-icon">⚡</span> Stream
+                </button>
+            </div>
+            <button class="btn btn-ghost" id="refreshBtn" style="display:none;padding:4px 10px;font-size:11px;align-items:center;gap:4px" onclick="refreshAnalysis()" title="Reload config and re-analyze">↺ Refresh</button>
+            <button class="btn btn-ghost" id="exportBtn" style="display:none;padding:4px 10px;font-size:11px;align-items:center;gap:4px" onclick="doExport()">⬇ Export Html+JSON</button>
+        </div>
+    </div>
+    
+    <!-- Preset Menu Container -->
+    <div id="presetMenu" style="display:none;background:#0f1219;border-bottom:1px solid #1e2433;padding:8px 28px;justify-content:center;align-items:center;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:8px;border-right:1px solid #1e2433;padding-right:12px">
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="openConfigFolder()" title="Open Config Folder">📂 Preset Config</button>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="addCustomPreset()">➕ Custom</button>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px;color:#f59e0b;border-color:rgba(245, 158, 11, 0.5)" onclick="resetCurrentPreset()">🔄 Reset</button>
+            <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px;color:#ef4444;border-color:rgba(239, 68, 68, 0.5)" onclick="deleteCurrentPreset()">🗑️ Delete</button>
+        </div>
+        <div class="mode-switch-wrap" id="presetRadiosWrap" style="margin:0">
+            <!-- Radio buttons will be converted to mode-btn style in JS -->
+        </div>
+    </div>
+
+    <!-- Dev Menu Container -->
+    <div id="devMenu" style="display:none;background:#0f1219;border-bottom:1px solid #1e2433;padding:8px 28px;justify-content:flex-end;gap:8px">
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="showReadmeModal()" title="How to use">📖 README</button>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" id="openLogBtn" title="Open App Log File">📄 App Log</button>
+        <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="if(window.electronAPI)window.electronAPI.toggleDevTools()" title="Toggle Developer Tools">🛠 DevTools</button>
+        <button class="btn btn-ghost" id="updateBtn" style="padding:4px 10px;font-size:11px;display:flex;align-items:center;gap:4px" onclick="checkForUpdates()" title="Check for updates">🔄 Update</button>
+    </div>
+
+    <div class="main">
+        <!-- Progress Panel -->
+        <div class="progress-panel" id="progressPanel">
+            <div id="progressLayout" style="display:block">
+                <div style="display:flex;justify-content:space-between;align-items:center">
+                    <div style="display:flex;align-items:center;gap:10px">
+                        <span id="progressDot" style="color:#60dcfa;animation:pulse 1s infinite;font-size:14px">●</span>
+                        <span id="progressLabel" style="font-size:13px;font-weight:600;color:#60dcfa">Analyzing...</span>
+                        <span id="progressMode" style="font-size:10px;padding:2px 8px;border-radius:4px;font-weight:600;letter-spacing:0.5px"></span>
+                        <span id="progressFile" style="font-size:11px;color:#4a5568"></span>
+                        <span class="enc-tag" id="progressEnc" style="display:none"></span>
+                    </div>
+                    <span id="progressCount" style="font-size:12px;color:#64748b;font-family:'Consolas',monospace"></span>
+                </div>
+                <div class="progress-bar-track">
+                    <div class="progress-bar-fill" id="progressBar" style="width:0%;background:linear-gradient(90deg,#60dcfa,#a78bfa)"></div>
+                </div>
+                <div style="display:flex;gap:20px;font-size:12px;color:#64748b">
+                    <span>Utterances: <b id="progFound" style="color:#e2e8f0">0</b></span>
+                    <span>Lines matched: <b id="progMatched" style="color:#e2e8f0">0</b></span>
+                    <span id="liveStatus" style="font-weight: 600;"></span>
+                </div>
+            </div>
+
+            <!-- Split layout after analysis complete: Top=Progress, Bottom=DropZone -->
+            <div id="progressSplitLayout" style="display:none">
+                <!-- Top: Progress Info -->
+                <div style="margin-bottom:12px">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+                        <div style="display:flex;align-items:center;gap:10px">
+                            <span style="color:#34d399;font-size:14px">✓</span>
+                            <span style="font-size:13px;font-weight:600;color:#34d399">Analysis Complete</span>
+                            <span id="progressFile2" style="font-size:11px;color:#4a5568"></span>
+                            <span class="enc-tag" id="progressEnc2" style="display:none"></span>
+                        </div>
+                        <span id="progressCount2" style="font-size:12px;color:#64748b;font-family:'Consolas',monospace"></span>
+                    </div>
+                    <div class="progress-bar-track">
+                        <div style="height:100%;border-radius:2px;width:100%;background:#34d399"></div>
+                    </div>
+                    <div style="display:flex;gap:20px;font-size:12px;color:#64748b;margin-top:10px">
+                        <span>Utterances: <b id="progFound2" style="color:#e2e8f0">0</b></span>
+                        <span>Lines matched: <b id="progMatched2" style="color:#e2e8f0">0</b></span>
+                    </div>
+                </div>
+                <!-- Bottom: Secondary Drop Zone -->
+                <div class="dropzone" id="secondaryDropZone" style="padding:16px;margin:0;border-radius:10px">
+                    <div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap">
+                        <span style="font-size:18px">📄</span>
+                        <span style="font-size:12px;color:#94a3b8">Drop another file here or click to browse</span>
+                        <button class="btn-paste" style="font-size:11px;padding:5px 14px" onclick="event.stopPropagation();doPaste()">📋 Paste</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Drop Zone -->
+        <div class="dropzone" id="dropzone">
+            <div class="device-input-container">
+                <label for="sdbDeviceInput">SDB Device:</label>
+                <input type="text" id="sdbDeviceInput" class="command-input" value="192.168.250.250:26101" onclick="event.stopPropagation();" style="max-width:220px">
+                <button class="btn btn-ghost" style="padding:5px 12px;font-size:12px;white-space:nowrap" onclick="event.stopPropagation();sdbConnectDevice()" id="sdbConnectBtn" title="sdb connect &lt;ip&gt; → sdb root on">🔌 Connect</button>
+                <span id="sdbConnectStatus" style="font-size:11px;color:#64748b"></span>
+            </div>
+            <div class="device-input-container" style="margin-top:5px" onclick="event.stopPropagation()">
+                <label for="sdbPathInput" style="white-space:nowrap;font-size:11px;color:#64748b">SDB Path:</label>
+                <input type="text" id="sdbPathInput" class="command-input" placeholder="Auto (C:\device-tools\tools\sdb.exe)" style="flex:1;min-width:0;font-size:11px">
+                <button class="btn btn-ghost" style="padding:4px 9px;font-size:11px;white-space:nowrap" onclick="event.stopPropagation();browseSdbPathUI()" title="Browse sdb.exe">📂</button>
+                <button class="btn btn-ghost" style="padding:4px 10px;font-size:11px;white-space:nowrap" onclick="event.stopPropagation();saveSdbPathUI()">Save</button>
+                <span id="sdbPathStatus" style="font-size:11px;color:#64748b"></span>
+            </div>
+            <div class="dropzone-icon">📄</div>
+            <div class="dropzone-title">Drop log file here, or click to browse</div>
+            <div class="dropzone-sub">Auto encoding detection (UTF-8, EUC-KR, UTF-16) · <kbd>Ctrl+V</kbd> to paste</div>
+            <div class="dropzone-actions">
+                <button class="btn-paste" onclick="event.stopPropagation();doPaste()">📋 Paste from Clipboard</button>
+                <div class="live-log-action">
+                    <button class="btn-live" id="liveLogBtn" onclick="event.stopPropagation();toggleLiveStream()">🔴 Start Live Log</button>
+                    <input type="text" class="command-input" id="liveLogCommand" value="sdb shell dlogutil -v VOICE_CLIENT" onclick="event.stopPropagation();">
+                </div>
+            </div>
+        </div>
+
+        <!-- Detail Window Loading (hidden by default) -->
+        <div id="loadingOverlay" class="loading-overlay">
+            <div class="loading-content">
+                <div class="loading-spinner"></div>
+                <div class="loading-text">Analyzing logs...</div>
+            </div>
+        </div>
+
+        <!-- Results area (hidden initially) -->
+        <div id="resultsArea" style="display:none">
+            <!-- Screenshot Section (Moved here, above the table and below dropzone) -->
+            <div class="screenshot-section" id="screenshotSection" style="display:none;margin-bottom:14px;">
+                <div class="screenshot-controls">
+                    <div class="screenshot-command">
+                        <textarea id="screenshotCommand" class="command-input" rows="3" onclick="event.stopPropagation()">sdb shell enlightenment_remote -display-shot /tmp/dump.png
+sdb pull /tmp/dump.png yymmdd_hhmmss.png</textarea>
+                        <div class="screenshot-buttons">
+                            <button class="btn btn-ghost" id="screenshotFolderBtn">📂 Select Folder</button>
+                            <button class="btn btn-primary" id="screenshotBtn">📸 Screenshot</button>
+                        </div>
+                    </div>
+                    <div class="screenshot-thumbnail-container" id="screenshotThumbnailContainer">
+                        <!-- Thumbnail will be displayed here -->
+                    </div>
+                </div>
+                <div id="screenshotFolder" class="screenshot-folder-path"></div>
+            </div>
+
+            <div style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px;gap:12px">
+                <div style="display:flex;align-items:center;justify-content:space-between;width:100%;flex-wrap:wrap;gap:8px">
+                    <div class="stats-bar" id="statsBar"></div>
+                    <div class="mode-switch-wrap" style="margin:0">
+                        <button class="mode-btn active" id="liveModeBtnTable" onclick="setLiveViewMode('table')" title="Table View - 분석 결과 테이블 표시">
+                            <span class="mode-icon">📋</span> Table
+                        </button>
+                        <button class="mode-btn" id="liveModeBtnSeq" onclick="setLiveViewMode('sequence')" title="Sequence Diagram View - PlantUML 시퀀스 다이어그램">
+                            <span class="mode-icon">📈</span> Sequence
+                        </button>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Live Log Viewer -->
+            <div class="raw-log-viewer" id="rawLogViewer" style="display:none;position:relative;">
+                <div style="position:sticky;top:10px;z-index:10;display:flex;justify-content:space-between;align-items:center;padding:0 10px;margin-bottom:-36px;pointer-events:none;">
+                    <div style="display:flex;gap:6px;pointer-events:auto;">
+                        <button class="btn btn-ghost" id="livePauseBtn" onclick="toggleLivePause()" style="padding:3px 10px;font-size:12px;background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">⏸ Pause</button>
+                        <button class="btn btn-ghost" onclick="toggleLiveStream()" style="padding:3px 10px;font-size:12px;color:#f87171;border-color:rgba(248,113,113,0.4);background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">■ Stop</button>
+                        <button class="btn btn-ghost" onclick="clearLiveLog()" style="padding:3px 10px;font-size:12px;background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">🗑 Clear</button>
+                        <button class="btn btn-ghost" onclick="openLiveLogInEditor()" style="padding:3px 10px;font-size:12px;background:rgba(15,17,23,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.5);">✎ Edit</button>
+                    </div>
+                    <input class="search-input" id="rawLogSearchBox" placeholder="Search in Live Log..." oninput="searchRawLog()" style="width:200px;padding:4px 10px;font-size:12px;pointer-events:auto;background:#0f1117;box-shadow:0 2px 8px rgba(0,0,0,0.5);">
+                </div>
+                <pre id="rawLogContent"></pre>
+            </div>
+
+            <!-- Live Test Section -->
+            <div id="liveTestSection" style="display:none;background:#0f1219;border:1px solid #1e2433;border-radius:10px;padding:12px 16px;margin-bottom:14px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:0;">
+                    <span style="font-size:11px;font-weight:700;color:#60dcfa;white-space:nowrap;letter-spacing:0.5px">LIVE TEST</span>
+                    <input type="text" id="liveTestInput" class="command-input" placeholder="Enter test utterance and press Enter..." style="flex:1;padding:6px 12px;font-size:13px" onkeydown="if(event.key==='Enter')sendLiveTest()">
+                    <button class="btn btn-primary" id="liveTestSendBtn" onclick="sendLiveTest()" style="padding:6px 14px;font-size:12px;white-space:nowrap;">▶ Send</button>
+                    <button class="btn btn-ghost" id="liveTestAdvancedBtn" onclick="toggleLiveTestAdvanced()" style="padding:6px 12px;font-size:12px;white-space:nowrap;">⚙ Advanced</button>
+                </div>
+                <!-- Advanced Panel (hidden by default) -->
+                <div id="liveTestAdvancedPanel" style="display:none;margin-top:12px;border-top:1px solid #1e2433;padding-top:12px;">
+                    <div id="liveTestAdvancedContent" style="display:flex;flex-direction:column;gap:10px;">
+                        <!-- Populated by JS from config -->
+                    </div>
+                    <div style="display:flex;gap:8px;align-items:center;margin-top:12px;border-top:1px solid #1e2433;padding-top:12px;flex-wrap:wrap;">
+                        <button class="btn btn-primary" id="liveTestRunBtn" onclick="startBatchTest()" style="padding:6px 16px;font-size:12px;">▶▶ Run Batch Test</button>
+                        <button class="btn btn-ghost" id="liveTestStopBtn" onclick="stopBatchTest()" style="display:none;padding:6px 14px;font-size:12px;color:#f87171;border-color:rgba(248,113,113,0.4)">■ Stop</button>
+                        <span id="liveTestStatus" style="font-size:11px;color:#64748b;flex:1"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="tableControlsArea" style="display:flex;flex-direction:column;align-items:center;margin-bottom:14px;gap:12px">
+                <div style="width:100%;display:flex;justify-content:center">
+                    <div style="display:flex;align-items:center;gap:8px;width:100%">
+                        <input class="search-input" id="searchBox" style="flex:1;min-width:160px" placeholder="Search all columns..." oninput="renderTable()">
+                        <button class="btn btn-ghost" onclick="copyTableAsTsv()" title="Copy table as TSV (Tab Separated Values)" style="white-space:nowrap;flex-shrink:0">📋 Copy TSV</button>
+                        <button class="btn btn-ghost" onclick="saveTableAsTsv()" title="Save table as TSV file" style="white-space:nowrap;flex-shrink:0">💾 Save TSV</button>
+                        <span style="color:#64748b;font-size:12px;white-space:nowrap;flex-shrink:0">Show:</span>
+                        <select id="tablePageSizeSelect" onchange="changeTablePageSize(this.value)" style="background:#1e2433;border:1px solid #2a3040;border-radius:8px;color:#94a3b8;padding:6px 8px;font-size:12px;outline:none;cursor:pointer;flex-shrink:0">
+                            <option value="50" selected>50</option>
+                            <option value="100">100</option>
+                            <option value="150">150</option>
+                            <option value="all">ALL</option>
+                        </select>
+                        <span id="tableCountLabel" style="color:#4a5568;font-size:11px;white-space:nowrap;flex-shrink:0"></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="table-wrap" id="tableWrap">
+                <div class="table-head" id="tableHead"></div>
+                <div class="table-filters" id="tableFilters"></div>
+                <div class="table-body" id="tableBody"></div>
+                <div id="batchWaitMsg" class="empty-msg" style="display:none">
+                    <div style="animation:pulse 1.5s infinite;margin-bottom:8px">⏳</div>
+                    <div>분석 완료 후 결과가 표시됩니다...</div>
+                    <div style="font-size:11px;color:#334155;margin-top:4px">Batch 모드 · 실시간으로 보려면 헤더의 Stream 버튼을 누르세요</div>
+                </div>
+            </div>
+
+            <!-- Live Sequence View (swaps with table area in Sequence mode) -->
+            <div id="liveSeqView" style="display:none;padding:16px;overflow-x:auto;min-height:200px;background:#0a0d14;border-radius:6px;margin-bottom:14px">
+                <div id="liveSeqContent" style="color:#64748b;font-size:12px;padding:20px;text-align:center">No entries yet. Start live log to see sequence diagram...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div class="modal-overlay" id="modal" onclick="closeModal()">
+        <div class="modal-body" onclick="event.stopPropagation()" id="modalContent"></div>
+    </div>
+
+    <!-- Screenshot Viewer Modal -->
+    <div class="modal-overlay" id="screenshotViewer" onclick="closeScreenshotViewer()" style="background:rgba(0,0,0,0.9);padding:0" onwheel="screenshotWheel(event)">
+        <div style="position:relative;width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px">
+            <div style="position:absolute;top:10px;right:10px;z-index:1001;display:flex;gap:8px">
+                <button class="btn btn-ghost" onclick="copyScreenshotToClipboard(event)" title="Copy Image to Clipboard">📋 Copy</button>
+                <button class="btn btn-ghost" onclick="saveScreenshotAs(event)" title="Save As...">💾 Save As</button>
+                <button class="btn btn-ghost" onclick="revealScreenshotInExplorer(event)" title="Reveal in File Explorer">📂 Reveal</button>
+                <div style="width:1px;background:#334155;margin:0 4px"></div>
+                <button class="btn btn-ghost" onclick="changeScreenshotZoom(-0.1)" title="Zoom Out">-</button>
+                <span id="zoomLevel" style="color:#94a3b8;font-size:12px;min-width:60px;text-align:center;display:flex;align-items:center;justify-content:center">100%</span>
+                <button class="btn btn-ghost" onclick="changeScreenshotZoom(0.1)" title="Zoom In">+</button>
+                <button class="btn btn-ghost" onclick="resetScreenshotZoom()" title="Reset">100%</button>
+                <button style="background:none;border:none;color:#94a3b8;font-size:18px;cursor:pointer;margin-left:8px" onclick="closeScreenshotViewer()">✕</button>
+            </div>
+            <img id="screenshotImage" src="" alt="Screenshot" style="max-width:100%;max-height:100%;transform-origin:center;transition:transform 0.1s" onclick="event.stopPropagation()">
+        </div>
+    </div>
+
+    <!-- Update Status Modal -->
+    <div class="modal-overlay" id="updateModal" onclick="closeUpdateModal()">
+        <div class="modal-body" onclick="event.stopPropagation()" style="max-width:500px">
+            <div class="modal-hdr">
+                <h2 style="margin:0;font-size:16px;font-weight:600;">Update Status</h2>
+                <button class="modal-close" onclick="closeUpdateModal()">✕</button>
+            </div>
+            <div style="padding:28px;display:flex;flex-direction:column;gap:16px">
+                <div id="updateContent">
+                    <div style="text-align:center;padding:40px 20px">
+                        <div style="font-size:14px;color:#94a3b8">Checking for updates...</div>
+                        <div style="margin-top:16px;animation:pulse 1s infinite">⏳</div>
+                    </div>
+                </div>
+                <div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #1e2433;padding-top:16px;margin-top:16px">
+                    <button class="btn btn-ghost" onclick="closeUpdateModal()">Close</button>
+                    <button class="btn btn-ghost" id="updateSkipBtn" style="display:none" onclick="closeUpdateModal()">Skip</button>
+                    <button class="btn btn-primary" id="updateDownloadBtn" style="display:none" onclick="startDownload()">Update Now</button>
+                    <button class="btn btn-primary" id="updateActionBtn" style="display:none" onclick="handleUpdateAction()">Install & Restart</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Error Toast Container -->
+    <div id="errorToastContainer" style="position:fixed;bottom:20px;right:20px;z-index:2000;display:flex;flex-direction:column-reverse;gap:10px"></div>
+
+    <!-- Pattern List Modal -->
+    <div id="patternListModal" style="display:none;position:fixed;inset:0;z-index:3000;background:rgba(0,0,0,0.6);align-items:flex-start;justify-content:flex-end;padding:10px 10px 0 0" onclick="if(event.target===this)closePatternListModal()">
+        <div style="background:#0f1219;border:1px solid #1e2433;border-radius:12px;width:420px;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.6)">
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid #1e2433">
+                <div style="font-size:13px;font-weight:700;color:#e2e8f0">📋 Pattern List</div>
+                <div style="display:flex;gap:8px;align-items:center">
+                    <button class="btn btn-ghost" style="padding:3px 10px;font-size:11px" onclick="enableAllPatternGroups()" title="Enable all">All On</button>
+                    <button class="btn btn-ghost" style="padding:3px 10px;font-size:11px" onclick="disableAllPatternGroups()" title="Disable all">All Off</button>
+                    <button class="btn btn-ghost" style="padding:3px 10px;font-size:11px;color:#f87171;border-color:rgba(248,113,113,0.4)" onclick="closePatternListModal()">✕</button>
+                </div>
+            </div>
+            <div id="patternListContent" style="overflow-y:auto;padding:12px 18px;flex:1"></div>
+        </div>
+    </div>
+
+    <!-- Find Bar -->
+    <div id="findBar" style="display:none;position:fixed;top:0;left:50%;transform:translateX(-50%);z-index:4000;background:#0f1219;border:1px solid #2a3a5c;border-top:none;border-radius:0 0 10px 10px;padding:8px 14px;display:none;align-items:center;gap:8px;box-shadow:0 4px 20px rgba(0,0,0,0.5)">
+        <input id="findBarInput" type="text" placeholder="Search in page..." style="background:#080a10;border:1px solid #1e2433;border-radius:6px;padding:5px 10px;color:#e2e8f0;font-size:12px;width:220px;outline:none" oninput="onFindBarInput()" onkeydown="onFindBarKeydown(event)">
+        <span id="findBarCount" style="font-size:11px;color:#64748b;min-width:60px"></span>
+        <button class="btn btn-ghost" style="padding:3px 8px;font-size:11px" onclick="findBarStep(-1)" title="Previous (Shift+Enter)">▲</button>
+        <button class="btn btn-ghost" style="padding:3px 8px;font-size:11px" onclick="findBarStep(1)" title="Next (Enter)">▼</button>
+        <button class="btn btn-ghost" style="padding:3px 8px;font-size:11px;color:#f87171;border-color:rgba(248,113,113,0.4)" onclick="hideFindBar()">✕</button>
+    </div>
+
+    <script src="js/renderer.js"></script>
+</body>
+</html>
