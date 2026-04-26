@@ -39,7 +39,7 @@ if "!COMMIT_MSG!"=="" set "COMMIT_MSG=Release"
 echo.
 
 :: Bump version in package.json only (no git ops)
-:: Capture output directly — some npm versions return errorlevel 1 even on success
+:: Capture output directly ? some npm versions return errorlevel 1 even on success
 echo Bumping version...
 for /f "delims=" %%v in ('npm version !VERSION_TYPE! --no-git-tag-version 2^>^&1') do set "NPM_OUT=%%v"
 
@@ -95,7 +95,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Push tags — triggers GitHub Actions
+:: Push tags ? triggers GitHub Actions
 echo Pushing tags (triggers GitHub Actions)...
 git push --tags
 if errorlevel 1 (
